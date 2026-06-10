@@ -1,0 +1,160 @@
+/* Tailwind utilities only — no global preflight (conflicts with Elementor/Astra) */
+@import "tailwindcss/theme" layer(theme);
+@import "tailwindcss/utilities" layer(utilities);
+
+body{
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box; 
+}
+button{
+  cursor: pointer;
+}
+.scrollbar-none{
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+} 
+
+/* Platform UI (shadcn) — scoped reset, never applied inside migrated iframes */
+.platform-ui {
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.platform-ui *,
+.platform-ui *::before,
+.platform-ui *::after {
+  box-sizing: border-box;
+}
+
+/* ─── WordPress / Elementor isolation ─── */
+.wp-migrated-root {
+  margin: 0;
+  min-height: 100vh;
+  /* Astra/Elementor expect border-box everywhere */
+  box-sizing: border-box;
+}
+
+.wp-migrated-root *,
+.wp-migrated-root *::before,
+.wp-migrated-root *::after {
+  box-sizing: border-box;
+}
+
+/* Next.js must not collapse Elementor images */
+.wp-migrated-root img {
+  max-width: 100%;
+  height: auto;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.wp-migrated-root .elementor-widget-image img {
+  display: inline-block;
+}
+
+/* Elementor background containers */
+.wp-migrated-root [data-wp-bg] {
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+/* ─── ElementsKit mega menu ─── */
+.wp-migrated-root .elementskit-navbar-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.wp-migrated-root .elementskit-megamenu-panel {
+  position: absolute;
+  left: 0;
+  top: 100%;
+  z-index: 99999;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.2s ease, visibility 0.2s ease;
+  width: var(--megamenu-width, 90vw);
+  max-width: 1200px;
+}
+
+.wp-migrated-root .elementskit-megamenu-has:hover > .elementskit-megamenu-panel,
+.wp-migrated-root .elementskit-megamenu-has:focus-within > .elementskit-megamenu-panel,
+.wp-migrated-root .elementskit-megamenu-has.ekit-active > .elementskit-megamenu-panel {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.wp-migrated-root .elementskit-dropdown-has {
+  position: relative;
+}
+
+.wp-migrated-root .ekit-menu-nav-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.wp-migrated-root .elementor-element.elementor-hidden-desktop {
+  display: none !important;
+}
+
+@media (max-width: 1024px) {
+  .wp-migrated-root .elementor-hidden-tablet {
+    display: none !important;
+  }
+  .wp-migrated-root .elementor-hidden-mobile {
+    display: block !important;
+  }
+}
+
+@media (max-width: 767px) {
+  .wp-migrated-root .elementor-hidden-mobile {
+    display: none !important;
+  }
+}
+
+/* Portal homepage (Gemini-style orbs) */
+@keyframes gemini-float {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(24px, -16px) scale(1.05);
+  }
+}
+
+@keyframes gemini-float-reverse {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(-20px, 12px) scale(1.04);
+  }
+}
+
+.animate-gemini-float {
+  animation: gemini-float 12s ease-in-out infinite;
+}
+
+.animate-gemini-float-reverse {
+  animation: gemini-float-reverse 14s ease-in-out infinite;
+}
+
+.animate-gemini-float-slow {
+  animation: gemini-float 10s ease-in-out infinite 1s;
+}
