@@ -4,7 +4,7 @@ import {
   getMigratedDataDir,
   getMigratedPublicDir,
   getMigratedPublicUrlPrefix,
-  WP_URL,
+  getWpUrl,
 } from "../../app/api/wp/config";
 import { wpHttpFetch } from "../../app/api/wp/http";
 import type { StylesManifest } from "../../app/api/wp/types";
@@ -14,19 +14,27 @@ import {
   getCssRegistry,
   persistCssRegistry,
 } from "./lib/css-download";
+import { buildPageAssetGraph } from "./lib/asset-graph";
 import { extractPageFromHtml } from "./lib/html-extract";
+import { mirrorPageAssetGraph } from "./lib/mirror-page-assets";
+import { getActiveSiteSlug } from "../../app/api/wp/config";
 import { routeToPageKey } from "./lib/page-key";
 
 const inlinePath = () =>
   path.join(getMigratedPublicDir(), "inline-styles.css");
 const pagesDir = () => path.join(getMigratedDataDir(), "pages");
 
-export async function fetchStyles(pageUrl = WP_URL): Promise<StylesManifest> {
+export async function fetchStyles(pageUrl = getWpUrl()): Promise<StylesManifest> {
   const res = await wpHttpFetch(pageUrl);
   if (!res.ok) throw new Error(`Cannot fetch ${pageUrl}: ${res.status}`);
   const html = await res.text();
   const extracted = extractPageFromHtml(html, pageUrl);
   const pageBuilder = await detectSitePageBuilder(pageUrl);
+
+  const siteSlug = getActiveSiteSlug();
+  if (siteSlug) {
+    await mirrorPageAssetGraph(buildPageAssetGraph(html, pageUrl), siteSlug);
+  }
 
   const registry = getCssRegistry();
   const stylesheets: string[] = [];
@@ -73,7 +81,7 @@ export async function fetchStyles(pageUrl = WP_URL): Promise<StylesManifest> {
   let themeJsonPath: string | undefined;
   try {
     const fallback = await wpHttpFetch(
-      `${WP_URL}/index.php?rest_route=${encodeURIComponent("/wp/v2/global-styles/themes")}`,
+      `${getWpUrl()}/index.php?rest_route=${encodeURIComponent("/wp/v2/global-styles/themes")}`,
     );
     if (fallback.ok) {
       const themes = (await fallback.json()) as { theme_json?: unknown }[];

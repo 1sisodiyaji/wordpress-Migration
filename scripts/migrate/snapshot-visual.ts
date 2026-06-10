@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright";
-import { MIGRATED_DATA_DIR, WP_URL } from "../../app/api/wp/config";
+import { MIGRATED_DATA_DIR, getWpUrl } from "../../app/api/wp/config";
 import type { MigrationManifest } from "../../app/api/wp/types";
 
 const SNAPSHOT_DIR = path.join(process.cwd(), "migration-reports", "snapshots");
@@ -21,7 +21,7 @@ export async function snapshotVisual(
   console.log(`  Comparing ${targets.length} routes (WP vs Remix)…`);
 
   for (const route of targets) {
-    const wpUrl = route.type === "home" ? WP_URL : route.wpLink;
+    const wpUrl = route.type === "home" ? getWpUrl() : route.wpLink;
     const remixPage = `${remixUrl}${route.path}`;
 
     const wpPage = await browser.newPage();
@@ -53,7 +53,7 @@ export async function snapshotVisual(
 
   const report = {
     generatedAt: new Date().toISOString(),
-    wordpressUrl: WP_URL,
+    wordpressUrl: getWpUrl(),
     remixUrl,
     snapshotDir: SNAPSHOT_DIR,
     note: "Open side-by-side PNGs in migration-reports/snapshots to verify pixel-perfect parity.",

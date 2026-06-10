@@ -18,6 +18,8 @@
     "fix:urls": "tsx scripts/fix-migrated-urls.ts",
     "migrate:audit": "tsx scripts/migrate-audit.ts",
     "migrate:repair-assets": "tsx scripts/fetch-missing-assets.ts",
+    "migrate:analyze-sites": "tsx scripts/analyze-test-sites.ts",
+    "migrate:test-sites": "tsx scripts/migrate-test-sites.ts",
     "migrate:graphql-check": "tsx -e \"import('./src/lib/wp/graphql.ts').then(m=>m.isGraphQLAvailable().then(ok=>console.log('WPGraphQL:', ok?'available':'not installed')))\""
   },
   "dependencies": {

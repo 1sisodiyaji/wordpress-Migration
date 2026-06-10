@@ -7,6 +7,8 @@ import {
 } from "../../../app/api/wp/config";
 import { mergeCssRegistry } from "../../../app/api/wp/css-registry";
 import { wpHttpFetch } from "../../../app/api/wp/http";
+import { rewriteCssFontUrls } from "./font-download";
+import { assetUrlAliases } from "./normalize-asset-url";
 import { mapPool } from "./pool";
 
 function cssDir(): string {
@@ -51,10 +53,11 @@ export async function downloadCss(url: string, dest: string): Promise<void> {
   const res = await wpHttpFetch(url);
   if (!res.ok) throw new Error(`Failed to download CSS ${url}: ${res.status}`);
   let css = await res.text();
+  css = await rewriteCssFontUrls(css, url);
   css = css.replace(/url\((['"]?)([^'")]+)\1\)/g, (match, quote, assetUrl) => {
     if (assetUrl.startsWith("data:")) return match;
-    const absolute = resolveUrl(assetUrl, url);
-    if (absolute.startsWith("http")) {
+    const absolute = resolveUrl(assetUrl.trim(), url);
+    if (absolute.startsWith("http") && !absolute.match(/\.(woff2?|ttf|otf|eot)(\?|#|$)/i)) {
       return `url(${quote}${absolute}${quote})`;
     }
     return match;
@@ -85,7 +88,9 @@ export async function downloadStylesheet(
 
   try {
     await downloadCss(absoluteUrl, diskPath);
-    registry.set(absoluteUrl, publicPath);
+    for (const alias of assetUrlAliases(absoluteUrl)) {
+      registry.set(alias, publicPath);
+    }
     return { path: publicPath, cached: false };
   } catch {
     return null;

@@ -29,7 +29,7 @@ export function ResponsiveViewportToolbar({
 }) {
   return (
     <div
-      className="flex items-center rounded-md border border-slate-200 bg-slate-50 p-0.5"
+      className="flex items-center rounded-md border border-slate-200 bg-slate-50 p-0.5 gap-2"
       role="group"
       aria-label="Responsive preview size"
     >

@@ -16,10 +16,8 @@ import {
   getMigratedDataDir,
   getMigratedPublicDir,
   getMigratedPublicUrlPrefix,
-  WP_URL,
+  getWpUrl,
 } from "../app/api/wp/config";
-import { criticalScriptUrls } from "../app/lib/wp/elementor-critical-js";
-import { criticalStylesheetUrls } from "../app/lib/wp/elementor-critical-css";
 import { getElementorAssets } from "../app/api/wp/elementor-assets";
 import { loadCssRegistry, mergeCssRegistry } from "../app/api/wp/css-registry";
 import { loadJsRegistry, mergeJsRegistry } from "../app/api/wp/js-registry";
@@ -43,6 +41,12 @@ import {
   persistJsRegistry,
   resetJsRegistry,
 } from "./migrate/lib/js-download";
+import { buildPageAssetGraph } from "./migrate/lib/asset-graph";
+import {
+  persistFontRegistry,
+  resetFontRegistry,
+} from "./migrate/lib/font-download";
+import { mirrorPageAssetGraph } from "./migrate/lib/mirror-page-assets";
 import { routeToPageKey } from "./migrate/lib/page-key";
 
 function hostKey(url: string): string {
@@ -75,11 +79,19 @@ function resolveRepairSlug(argvSlug?: string): string {
   return "radius-ois-ai";
 }
 
+function sameSiteUrl(url: string, siteOrigin: string): boolean {
+  try {
+    return new URL(url).hostname === new URL(siteOrigin).hostname;
+  } catch {
+    return url.startsWith("/sites/");
+  }
+}
+
 const slug = resolveRepairSlug(process.argv[2]);
 process.env.SITE_SLUG = slug;
 bootstrapMigrateEnv([]);
 
-const sourceUrl = getWordPressSourceUrl(slug) || WP_URL;
+const sourceUrl = getWordPressSourceUrl(slug) || getWpUrl();
 const pageUrl = `${sourceUrl.replace(/\/$/, "")}/`;
 
 interface GapReport {
@@ -116,38 +128,30 @@ function collectPageAssetUrls(): { css: string[]; js: string[] } {
 async function fetchLiveAssetOrder(): Promise<{
   stylesheets: string[];
   scripts: string[];
+  html: string;
 }> {
   const { wpHttpFetch } = await import("../app/api/wp/http");
   const res = await wpHttpFetch(pageUrl);
   if (!res.ok) throw new Error(`Cannot fetch ${pageUrl}: ${res.status}`);
   const html = await res.text();
-  const $ = cheerio.load(html);
+  const graph = buildPageAssetGraph(html, pageUrl);
+  await mirrorPageAssetGraph(graph, slug);
 
-  const stylesheets: string[] = [];
-  const seenCss = new Set<string>();
-  $('link[rel="stylesheet"]').each((_, el) => {
-    const href = $(el).attr("href");
-    if (!href) return;
-    const abs = resolveUrl(href, pageUrl);
-    if (!seenCss.has(abs)) {
-      seenCss.add(abs);
-      stylesheets.push(abs);
-    }
-  });
+  const stylesheets = [
+    ...new Set([
+      ...graph.stylesheets,
+      ...graph.conditionalStylesheets,
+      ...graph.fontStylesheets,
+    ]),
+  ];
+  const scripts = [
+    ...new Set([
+      ...(graph.scripts.map((s) => s.src).filter(Boolean) as string[]),
+      ...graph.conditionalScripts,
+    ]),
+  ];
 
-  const scripts: string[] = [];
-  const seenJs = new Set<string>();
-  $("script[src]").each((_, el) => {
-    const src = $(el).attr("src");
-    if (!src) return;
-    const abs = resolveUrl(src, pageUrl);
-    if (!seenJs.has(abs)) {
-      seenJs.add(abs);
-      scripts.push(abs);
-    }
-  });
-
-  return { stylesheets, scripts };
+  return { stylesheets, scripts, html };
 }
 
 function auditGaps(
@@ -246,22 +250,24 @@ async function main(): Promise<void> {
   const live = await fetchLiveAssetOrder();
 
   const allCssUrls = [
-    ...new Set([
-      ...live.stylesheets,
-      ...(elementor?.stylesheets ?? []),
-      ...criticalStylesheetUrls(sourceUrl),
-      ...pageAssets.css,
-      ...(getStyles(slug)?.stylesheets?.filter((s) => s.startsWith("http")) ?? []),
-    ]),
+    ...new Set(
+      [
+        ...live.stylesheets,
+        ...(elementor?.stylesheets ?? []),
+        ...pageAssets.css,
+        ...(getStyles(slug)?.stylesheets?.filter((s) => s.startsWith("http")) ?? []),
+      ].filter((u) => sameSiteUrl(u, sourceUrl)),
+    ),
   ];
 
   const allJsUrls = [
-    ...new Set([
-      ...live.scripts,
-      ...(elementor?.scripts?.map((s) => s.src) ?? []),
-      ...criticalScriptUrls(sourceUrl),
-      ...pageAssets.js,
-    ]),
+    ...new Set(
+      [
+        ...live.scripts,
+        ...(elementor?.scripts?.map((s) => s.src) ?? []),
+        ...pageAssets.js,
+      ].filter((u) => sameSiteUrl(u, sourceUrl)),
+    ),
   ];
 
   const before = auditGaps(
@@ -274,6 +280,7 @@ async function main(): Promise<void> {
 
   resetCssRegistry();
   resetJsRegistry();
+  resetFontRegistry();
 
   // Seed registry from existing mappings
   const existingCss = loadCssRegistry(slug);
@@ -302,6 +309,7 @@ async function main(): Promise<void> {
 
   persistCssRegistry(slug);
   persistJsRegistry(slug);
+  persistFontRegistry(slug);
 
   // Rebuild styles.json — live order + local paths
   const localStylesheets: string[] = [];
@@ -350,8 +358,7 @@ async function main(): Promise<void> {
   await fsPromises.mkdir(elementorDir, { recursive: true });
 
   const inlineScripts: Array<{ id?: string; content: string; type?: string }> = [];
-  const res = await (await import("../app/api/wp/http")).wpHttpFetch(pageUrl);
-  const html = await res.text();
+  const html = live.html;
   const $ = cheerio.load(html);
   $("script:not([src])").each((_, el) => {
     const content = $(el).html()?.trim();

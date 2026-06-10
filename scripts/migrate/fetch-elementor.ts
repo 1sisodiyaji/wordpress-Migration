@@ -10,14 +10,18 @@ import type {
   WpRoute,
 } from "../../app/api/wp/types";
 import { detectSitePageBuilder } from "./detect-builder";
+import { buildPageAssetGraph } from "./lib/asset-graph";
 import {
-  downloadStylesheet,
   getCssRegistry,
   persistCssRegistry,
 } from "./lib/css-download";
+import { persistFontRegistry } from "./lib/font-download";
+import { mirrorPageAssetGraph } from "./lib/mirror-page-assets";
 import type { PageBuilder as HtmlPageBuilder } from "./lib/html-extract";
 import { extractPageFromHtml } from "./lib/html-extract";
-import { migrateFullDesign, migrateFullSite } from "./lib/migrate-flags";
+import { persistJsRegistry } from "./lib/js-download";
+import { isVisualPageBuilder, useFullBodyForCrawl } from "./lib/shell-crawl";
+import { migrateFullSite } from "./lib/migrate-flags";
 import { routeToPageKey } from "./lib/page-key";
 import { transformHtmlForNext } from "./lib/html-transform";
 import { mapPool } from "./lib/pool";
@@ -39,26 +43,6 @@ function crawlDelayMs(): number {
   return 150;
 }
 
-async function fetchElementorPostCss(
-  postId: number,
-  registry: Map<string, string>,
-): Promise<void> {
-  const candidates = [
-    `/wp-content/uploads/elementor/css/post-${postId}.css`,
-    `/wp-content/uploads/elementor/css/post-${postId}.min.css`,
-  ];
-
-  const { WP_URL } = await import("../../app/api/wp/config");
-
-  for (const rel of candidates) {
-    const url = `${WP_URL}${rel}`;
-    const saved = await downloadStylesheet(url, registry);
-    if (saved && !saved.cached) {
-      console.log(`  ✓ Elementor post CSS ${saved.path}`);
-    }
-  }
-}
-
 async function crawlRoute(
   route: WpRoute,
   registry: Map<string, string>,
@@ -70,20 +54,15 @@ async function crawlRoute(
 
   const html = await res.text();
   const extracted = extractPageFromHtml(html, url);
+  const graph = buildPageAssetGraph(html, url);
 
-  for (const sheetUrl of extracted.stylesheetUrls) {
-    const saved = await downloadStylesheet(sheetUrl, registry);
-    if (saved && !saved.cached) console.log(`  ✓ CSS ${saved.path}`);
-  }
-
-  const templateIdMatches = html.matchAll(/data-elementor-id="(\d+)"/g);
-  for (const match of templateIdMatches) {
-    const templateId = parseInt(match[1], 10);
-    if (templateId) await fetchElementorPostCss(templateId, registry);
-  }
-
-  if (route.postId) {
-    await fetchElementorPostCss(route.postId, registry);
+  const { getActiveSiteSlug } = await import("../../app/api/wp/config");
+  const siteSlug = getActiveSiteSlug();
+  if (siteSlug) {
+    if (route.postId && !graph.elementorDocumentIds.includes(route.postId)) {
+      graph.elementorDocumentIds.push(route.postId);
+    }
+    await mirrorPageAssetGraph(graph, siteSlug);
   }
 
   const rawHtml =
@@ -91,8 +70,8 @@ async function crawlRoute(
       ? extracted.bodyHtml
       : extracted.contentHtml;
 
-  const { WP_URL } = await import("../../app/api/wp/config");
-  const rewritten = rewriteMigratedHtml(rawHtml, WP_URL);
+  const { getWpUrl } = await import("../../app/api/wp/config");
+  const rewritten = rewriteMigratedHtml(rawHtml, getWpUrl());
   const { html: shellHtml, assets } = transformHtmlForNext(rewritten);
 
   const key = routeToPageKey(route.path);
@@ -135,6 +114,7 @@ export async function crawlHomePage(
     "utf8",
   );
   persistCssRegistry();
+  persistFontRegistry();
   return { styles: updatedStyles };
 }
 
@@ -144,11 +124,13 @@ export async function fetchElementorPages(
 ): Promise<{ styles: StylesManifest; routes: WpRoute[] }> {
   const builder = manifest.pageBuilder ?? (await detectSitePageBuilder());
   const fullSite = migrateFullSite();
-  const fullDesign = migrateFullDesign();
 
   const routesToCrawl = manifest.routes.filter((r) => {
     if (fullSite) return true;
-    return builder === "elementor" || r.renderMode === "shell";
+    if (r.renderMode === "shell") return true;
+    if (isVisualPageBuilder(builder)) return true;
+    if (builder === "gutenberg") return true;
+    return r.isElementor === true;
   });
 
   if (!routesToCrawl.length) {
@@ -158,7 +140,7 @@ export async function fetchElementorPages(
 
   console.log(
     fullSite
-      ? `  Full-site crawl: ${routesToCrawl.length} URL(s) (design=${fullDesign ? "full page" : "content region"})…`
+      ? `  Full-site crawl: ${routesToCrawl.length} URL(s)…`
       : builder === "elementor"
         ? "  Elementor site — crawling rendered HTML + post CSS…"
         : `  Crawling ${routesToCrawl.length} shell route(s)…`,
@@ -181,14 +163,7 @@ export async function fetchElementorPages(
   }
 
   const crawlOne = async (route: WpRoute): Promise<boolean> => {
-    const useFullBody =
-      fullDesign ||
-      route.pageBuilder === "elementor" ||
-      route.isElementor ||
-      builder === "elementor" ||
-      route.renderMode === "shell" ||
-      route.path === "/";
-
+    const useFullBody = useFullBodyForCrawl(builder, route);
     const result = await crawlRoute(route, registry, useFullBody);
     const updated = routeByPath.get(route.path);
     if (updated) {
@@ -247,6 +222,8 @@ export async function fetchElementorPages(
     "utf8",
   );
   persistCssRegistry();
+  persistJsRegistry();
+  persistFontRegistry();
 
   return { styles: updatedStyles, routes: [...routeByPath.values()] };
 }

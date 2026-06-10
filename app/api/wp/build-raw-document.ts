@@ -7,6 +7,7 @@ import {
   getPageShellAssets,
   getPageShellHtml,
 } from "./page-shell";
+import { buildPreviewHeadLinks } from "./head-assets";
 import { resolvePreviewScripts } from "./resolve-preview-scripts";
 import { resolvePreviewStylesheets } from "./resolve-preview-stylesheets";
 import type { PageShellAssets } from "./types";
@@ -103,6 +104,7 @@ export function buildRawPreviewDocument(siteSlug: string, routePath = "/"): stri
     ? fs.readFileSync(globalCssPath, "utf8")
     : "";
 
+  const headLinks = buildPreviewHeadLinks(siteSlug);
   const cssHrefs = resolvePreviewStylesheets(siteSlug);
 
   const cssLinks = cssHrefs
@@ -120,6 +122,7 @@ export function buildRawPreviewDocument(siteSlug: string, routePath = "/"): stri
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  ${headLinks}
   ${cssLinks}
   ${inlineHeadStyles}
   ${globalCss ? `<style id="elementor-global-custom">${globalCss}</style>` : ""}

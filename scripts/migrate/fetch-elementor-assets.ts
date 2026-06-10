@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import * as cheerio from "cheerio";
-import { getMigratedDataDir, WP_URL } from "../../app/api/wp/config";
+import { getMigratedDataDir, getWpUrl } from "../../app/api/wp/config";
 import { wpHttpFetch } from "../../app/api/wp/http";
 import {
   downloadStylesheets,
@@ -30,7 +30,7 @@ export interface ElementorAssetsManifest {
  * Called from full migration and repair script.
  */
 export async function fetchElementorAssets(
-  pageUrl = WP_URL,
+  pageUrl = getWpUrl(),
 ): Promise<ElementorAssetsManifest> {
   console.log("  ⚡ Elementor live assets (CSS + JS load order)…");
 
@@ -104,7 +104,7 @@ export async function fetchElementorAssets(
   for (const docId of documentIds) {
     for (const suffix of ["", ".min"]) {
       docUrls.push(
-        `${WP_URL.replace(/\/$/, "")}/wp-content/uploads/elementor/css/post-${docId}${suffix}.css`,
+        `${getWpUrl().replace(/\/$/, "")}/wp-content/uploads/elementor/css/post-${docId}${suffix}.css`,
       );
     }
   }

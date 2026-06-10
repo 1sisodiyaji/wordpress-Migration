@@ -1,24 +1,33 @@
-import { WP_URL } from "./config";
+import { getWpUrl } from "./config";
 import { formatWpHttpError, wpHttpFetch } from "./http";
 
 let cachedRestBase: string | null = null;
+let cachedRestBaseFor: string | null = null;
+
+export function resetRestBaseCache(): void {
+  cachedRestBase = null;
+  cachedRestBaseFor = null;
+}
 
 /** Resolves REST base — supports pretty permalinks or `?rest_route=` fallback. */
 export async function getRestBase(): Promise<string> {
-  if (cachedRestBase) return cachedRestBase;
+  const wpUrl = getWpUrl();
+  if (cachedRestBase && cachedRestBaseFor === wpUrl) return cachedRestBase;
 
-  const pretty = `${WP_URL}/wp-json`;
+  const pretty = `${wpUrl}/wp-json`;
   try {
     const res = await wpHttpFetch(pretty);
     if (res.ok) {
       cachedRestBase = pretty;
+      cachedRestBaseFor = wpUrl;
       return pretty;
     }
   } catch {
     /* fall through */
   }
 
-  cachedRestBase = `${WP_URL}/index.php?rest_route=`;
+  cachedRestBase = `${wpUrl}/index.php?rest_route=`;
+  cachedRestBaseFor = wpUrl;
   return cachedRestBase;
 }
 
@@ -105,15 +114,16 @@ export async function fetchSiteMeta(): Promise<{
     return {
       name: settings.title ?? "WordPress Site",
       description: settings.description ?? "",
-      url: settings.url ?? WP_URL,
-      home: settings.home ?? WP_URL,
+      url: settings.url ?? getWpUrl(),
+      home: settings.home ?? getWpUrl(),
     };
   } catch {
+    const wpUrl = getWpUrl();
     return {
       name: "WordPress Site",
       description: "",
-      url: WP_URL,
-      home: WP_URL,
+      url: wpUrl,
+      home: wpUrl,
     };
   }
 }

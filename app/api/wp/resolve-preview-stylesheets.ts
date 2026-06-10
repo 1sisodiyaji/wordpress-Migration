@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { getElementorAssets } from "./elementor-assets";
+import { getSitePluginAssets } from "./plugin-assets";
 import { getMigratedPublicDir, getMigratedPublicUrlPrefix } from "./config";
 import { loadCssRegistry } from "./css-registry";
 import { getStyles } from "./load-migrated";
@@ -40,8 +41,8 @@ function findLocalCssByUrl(siteSlug: string, absoluteUrl: string): string | null
 }
 
 /**
- * Resolve CSS for raw preview — prefers local mirrored files from builder crawl.
- * Order: elementor/assets.json → styles.json → live URL fallback.
+ * Resolve CSS for raw preview — live WP enqueue order with local paths.
+ * Order: plugin-assets (core→theme→plugins→uploads) → elementor → styles.json.
  */
 export function resolvePreviewStylesheets(siteSlug: string): string[] {
   const seen = new Set<string>();
@@ -58,6 +59,30 @@ export function resolvePreviewStylesheets(siteSlug: string): string[] {
     out.push(href);
   };
 
+  const pluginAssets = getSitePluginAssets(siteSlug);
+  for (const inline of pluginAssets?.inlineStyles ?? []) {
+    add(inline.publicPath);
+  }
+
+  if (pluginAssets?.stylesheets.all.length) {
+    for (const sheet of pluginAssets.stylesheets.all) {
+      add(findLocalCssByUrl(siteSlug, sheet), sheet);
+    }
+  } else if (pluginAssets) {
+    for (const layer of [
+      "core",
+      "theme",
+      "plugin",
+      "uploads",
+      "cache",
+      "external",
+    ] as const) {
+      for (const sheet of pluginAssets.stylesheets[layer] ?? []) {
+        add(findLocalCssByUrl(siteSlug, sheet), sheet);
+      }
+    }
+  }
+
   const elementor = getElementorAssets(siteSlug);
   if (elementor?.stylesheets?.length) {
     for (const sheet of elementor.stylesheets) {
@@ -73,11 +98,11 @@ export function resolvePreviewStylesheets(siteSlug: string): string[] {
     add(sheet);
   }
 
-  // Mirror any plugin/theme CSS on disk that crawl lists missed.
   const cssDir = path.join(getMigratedPublicDir(siteSlug), "css");
   if (fs.existsSync(cssDir)) {
-    for (const file of fs.readdirSync(cssDir).sort()) {
-      add(`${getMigratedPublicUrlPrefix(siteSlug)}/css/${file}`);
+    for (const file of fs.readdirSync(cssDir)) {
+      const local = `${getMigratedPublicUrlPrefix(siteSlug)}/css/${file}`;
+      if (!seen.has(local)) add(local);
     }
   }
 

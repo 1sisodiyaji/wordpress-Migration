@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import * as cheerio from "cheerio";
 import { wpFetchAllLight } from "../../app/api/wp/client";
-import { MIGRATED_DATA_DIR } from "../../app/api/wp/config";
+import { getMigratedDataDir } from "../../app/api/wp/config";
 import { wpHttpFetch } from "../../app/api/wp/http";
 import type {
   ElementorSnippet,
@@ -10,6 +10,7 @@ import type {
   ElementorTemplate,
   PageShellAssets,
 } from "../../app/api/wp/types";
+import { fetchElementorMetaFromApi } from "./builders/elementor/resolve-api";
 import { transformHtmlForNext } from "./lib/html-transform";
 
 interface LightPost {
@@ -99,16 +100,18 @@ export async function fetchElementorSystem(): Promise<ElementorSystemManifest> {
     }
   }
 
+  const apiMeta = await fetchElementorMetaFromApi();
+
   const manifest: ElementorSystemManifest = {
     fetchedAt: new Date().toISOString(),
-    kitId: 6,
+    kitId: apiMeta.kitId,
     snippets,
     templates,
     floatingButtons,
     globalSnippetIds: snippets.map((s) => s.id),
   };
 
-  const dir = path.join(MIGRATED_DATA_DIR, "elementor");
+  const dir = path.join(getMigratedDataDir(), "elementor");
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(
     path.join(dir, "system.json"),

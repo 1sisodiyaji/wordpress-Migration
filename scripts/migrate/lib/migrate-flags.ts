@@ -13,3 +13,9 @@ export function migrateFullDesign(): boolean {
 export function migrateUseSitemap(): boolean {
   return process.env.MIGRATE_USE_SITEMAP !== "false";
 }
+
+export function maxMigratePages(): number {
+  const n = Number(process.env.MIGRATE_MAX_PAGES ?? "150");
+  if (!Number.isFinite(n) || n < 1) return 150;
+  return Math.floor(n);
+}

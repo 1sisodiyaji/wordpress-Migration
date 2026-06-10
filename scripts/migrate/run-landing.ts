@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { getMigratedDataDir, WP_URL } from "../../app/api/wp/config";
+import { getMigratedDataDir, getWpUrl } from "../../app/api/wp/config";
 import type { MigrationManifest, WpRoute } from "../../app/api/wp/types";
 import { setMigrationPhase } from "../../app/api/wp/migration-status";
 import { upsertSite } from "../../app/api/wp/sites";
@@ -11,16 +11,16 @@ import { fetchStyles } from "./fetch-styles";
 /** Fast path: styles + homepage HTML only (preview workspace). */
 export async function runLandingMigration(slug: string): Promise<void> {
   setMigrationPhase(slug, "Fetching homepage styles");
-  const styles = await fetchStyles(WP_URL);
+  const styles = await fetchStyles(getWpUrl());
   console.log(
     `   ${styles.stylesheets.length} stylesheets, ${styles.inlineStyles.length} inline bundles\n`,
   );
 
   setMigrationPhase(slug, "Crawling homepage");
-  const pageBuilder = await detectSitePageBuilder(WP_URL);
+  const pageBuilder = await detectSitePageBuilder(getWpUrl());
   const homeRoute: WpRoute = {
     path: "/",
-    wpLink: `${WP_URL}/`,
+    wpLink: `${getWpUrl()}/`,
     type: "home",
     renderMode: "shell",
     pageBuilder,
@@ -29,25 +29,28 @@ export async function runLandingMigration(slug: string): Promise<void> {
 
   const { styles: updatedStyles } = await crawlHomePage(homeRoute, styles);
 
+  setMigrationPhase(slug, `Running ${pageBuilder} asset pipeline`);
+  const { runBuilderPipeline } = await import("./builders");
+  await runBuilderPipeline(getWpUrl());
+
   if (pageBuilder === "elementor") {
-    setMigrationPhase(slug, "Running Elementor asset pipeline");
-    const { runBuilderPipeline } = await import("./builders");
-    await runBuilderPipeline(WP_URL);
     const { fetchElementorAssets } = await import("./fetch-elementor-assets");
-    await fetchElementorAssets(`${WP_URL.replace(/\/$/, "")}/`);
+    await fetchElementorAssets(`${getWpUrl().replace(/\/$/, "")}/`);
+    const { fetchElementorSystem } = await import("./fetch-elementor-system");
+    await fetchElementorSystem();
   }
 
   const manifest: MigrationManifest = {
     version: 1,
     migratedAt: new Date().toISOString(),
-    wordpressUrl: WP_URL,
-    restBase: `${WP_URL}/wp-json`,
+    wordpressUrl: getWpUrl(),
+    restBase: `${getWpUrl()}/wp-json`,
     pageBuilder,
     site: {
-      name: new URL(WP_URL).hostname,
+      name: new URL(getWpUrl()).hostname,
       description: "",
-      url: WP_URL,
-      home: WP_URL,
+      url: getWpUrl(),
+      home: getWpUrl(),
       gmt_offset: 0,
       timezone_string: "",
     },
@@ -72,7 +75,7 @@ export async function runLandingMigration(slug: string): Promise<void> {
 
   upsertSite({
     slug,
-    url: WP_URL,
+    url: getWpUrl(),
     name: manifest.site.name,
     status: "ready",
     stage: "landing",

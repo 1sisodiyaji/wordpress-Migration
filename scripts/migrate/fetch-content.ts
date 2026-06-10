@@ -7,27 +7,23 @@ import {
   wpFetchAllLight,
 } from "../../app/api/wp/client";
 import { fetchContentViaGraphQL, isGraphQLAvailable } from "../../app/api/wp/graphql";
-import { MIGRATED_DATA_DIR, WP_URL } from "../../app/api/wp/config";
+import { getMigratedDataDir, getWpUrl } from "../../app/api/wp/config";
 import type { MigrationManifest, WpMedia, WpPost, WpRoute } from "../../app/api/wp/types";
 import type { PageBuilder, StylesManifest } from "../../app/api/wp/types";
 import { detectSitePageBuilder } from "./detect-builder";
-import { migrateFullSite, migrateUseSitemap } from "./lib/migrate-flags";
+import { migrateUseSitemap } from "./lib/migrate-flags";
+import { capRoutes } from "./lib/route-cap";
+import {
+  defaultRenderMode,
+  isLikelyElementorPost,
+} from "./lib/shell-crawl";
 import { discoverSitemapUrls } from "./lib/sitemap";
 import { linkToPath } from "./lib/url-path";
 
 function rewriteContentHtml(html: string): string {
   const origin = process.env.NEXT_PUBLIC_WP_MEDIA_ORIGIN;
   if (!origin) return html;
-  return html.replaceAll(WP_URL, origin);
-}
-
-function isLikelyElementorPost(html: string): boolean {
-  return (
-    html.includes("[elementor") ||
-    html.includes("elementor-widget") ||
-    html.includes("data-elementor-id") ||
-    html.includes("elementor-element")
-  );
+  return html.replaceAll(getWpUrl(), origin);
 }
 
 function buildRoutes(
@@ -36,20 +32,19 @@ function buildRoutes(
   home: string,
   siteBuilder: PageBuilder,
 ): WpRoute[] {
-  const fullSite = migrateFullSite();
-  const defaultMode =
-    fullSite || siteBuilder === "elementor" ? "shell" : "api";
-
   const routes: WpRoute[] = [
-    { path: "/", wpLink: home, type: "home", renderMode: "shell" },
+    {
+      path: "/",
+      wpLink: home,
+      type: "home",
+      renderMode: "shell",
+      pageBuilder: siteBuilder,
+    },
   ];
 
   for (const page of pages) {
     const rendered = page.content.rendered;
-    const renderMode =
-      defaultMode === "shell" || isLikelyElementorPost(rendered)
-        ? "shell"
-        : "api";
+    const renderMode = defaultRenderMode(siteBuilder, rendered);
 
     const path = linkToPath(page.link, home);
     if (path === "/") continue;
@@ -65,15 +60,13 @@ function buildRoutes(
       isElementor:
         renderMode === "shell" &&
         (siteBuilder === "elementor" || isLikelyElementorPost(rendered)),
+      pageBuilder: isLikelyElementorPost(rendered) ? "elementor" : siteBuilder,
     });
   }
 
   for (const post of posts) {
     const rendered = post.content.rendered;
-    const renderMode =
-      defaultMode === "shell" || isLikelyElementorPost(rendered)
-        ? "shell"
-        : "api";
+    const renderMode = defaultRenderMode(siteBuilder, rendered);
 
     const path = linkToPath(post.link, home);
 
@@ -88,6 +81,7 @@ function buildRoutes(
       isElementor:
         renderMode === "shell" &&
         (siteBuilder === "elementor" || isLikelyElementorPost(rendered)),
+      pageBuilder: isLikelyElementorPost(rendered) ? "elementor" : siteBuilder,
     });
   }
 
@@ -103,9 +97,9 @@ function mergeSitemapRoutes(
   routes: WpRoute[],
   sitemapPageUrls: string[],
   home: string,
+  siteBuilder: PageBuilder,
 ): WpRoute[] {
   const byPath = new Map(routes.map((r) => [r.path, { ...r }]));
-  const fullSite = migrateFullSite();
   let added = 0;
 
   for (const url of sitemapPageUrls) {
@@ -115,7 +109,7 @@ function mergeSitemapRoutes(
     const existing = byPath.get(path);
     if (existing) {
       existing.source = existing.source === "sitemap" ? "sitemap" : "both";
-      if (fullSite) existing.renderMode = "shell";
+      existing.renderMode = defaultRenderMode(siteBuilder);
       continue;
     }
 
@@ -123,8 +117,9 @@ function mergeSitemapRoutes(
       path,
       wpLink: url,
       type: "page",
-      renderMode: "shell",
+      renderMode: defaultRenderMode(siteBuilder),
       source: "sitemap",
+      pageBuilder: siteBuilder,
     });
     added += 1;
   }
@@ -230,12 +225,18 @@ export async function fetchContent(styles: StylesManifest): Promise<MigrationMan
   }
 
   let routes = buildRoutes(pages, posts, sitePartial.home, pageBuilder);
-  routes = mergeSitemapRoutes(routes, sitemap.pageUrls, sitePartial.home);
+  routes = mergeSitemapRoutes(
+    routes,
+    sitemap.pageUrls,
+    sitePartial.home,
+    pageBuilder,
+  );
+  routes = capRoutes(routes);
 
   const manifest: MigrationManifest = {
     version: 1,
     migratedAt: new Date().toISOString(),
-    wordpressUrl: WP_URL,
+    wordpressUrl: getWpUrl(),
     restBase,
     pageBuilder,
     site: {
@@ -256,9 +257,10 @@ export async function fetchContent(styles: StylesManifest): Promise<MigrationMan
     },
   };
 
-  await fs.mkdir(MIGRATED_DATA_DIR, { recursive: true });
+  const dataDir = getMigratedDataDir();
+  await fs.mkdir(dataDir, { recursive: true });
   await fs.writeFile(
-    path.join(MIGRATED_DATA_DIR, "manifest.json"),
+    path.join(dataDir, "manifest.json"),
     JSON.stringify(manifest, null, 2),
     "utf8",
   );

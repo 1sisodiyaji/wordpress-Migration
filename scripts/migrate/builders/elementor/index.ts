@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { MIGRATED_DATA_DIR, WP_URL } from "../../../../app/api/wp/config";
+import { getMigratedDataDir, getWpUrl } from "../../../../app/api/wp/config";
 import { wpHttpFetch } from "../../../../app/api/wp/http";
 import {
   downloadStylesheets,
@@ -16,37 +16,33 @@ import {
   absUrl,
   postCssPath,
 } from "./constants";
+import { buildPageAssetGraph } from "../../lib/asset-graph";
+import { extractLivePageAssets } from "../../lib/live-assets";
+import { mirrorPageAssetGraph } from "../../lib/mirror-page-assets";
+import { getActiveSiteSlug } from "../../../../app/api/wp/config";
+import { persistFontRegistry } from "../../lib/font-download";
 import { parseElementorHtml } from "./parse-html";
 import { fetchElementorMetaFromApi } from "./resolve-api";
-
-const THIRD_PARTY_CSS = [
-  "/wp-content/plugins/elementskit-lite/widgets/init/assets/css/widget-styles.css",
-  "/wp-content/plugins/elementskit/widgets/init/assets/css/widget-styles-pro.css",
-  "/wp-content/plugins/elementskit-lite/widgets/init/assets/css/responsive.css",
-  "/wp-content/plugins/essential-addons-for-elementor-lite/assets/front-end/css/view/general.min.css",
-  "/wp-content/themes/astra/assets/css/minified/main.min.css",
-  "/wp-content/themes/astra-child-theme/style.css",
-];
-
-const THIRD_PARTY_JS = [
-  "/wp-content/plugins/elementskit-lite/widgets/init/assets/js/widget-scripts.js",
-  "/wp-content/plugins/elementskit/widgets/init/assets/js/widget-scripts-pro.js",
-  "/wp-content/plugins/elementskit-lite/widgets/init/assets/js/elementor.js",
-];
+import {
+  downloadScripts,
+  getJsRegistry,
+  persistJsRegistry,
+} from "../../lib/js-download";
 
 function unique<T>(arr: T[]): T[] {
   return [...new Set(arr)];
 }
 
 /** Build full asset plan from HTML + API (mirrors Elementor Frontend::enqueue_styles). */
-export async function resolveElementorPlan(pageUrl = WP_URL): Promise<BuilderAssetPlan> {
+export async function resolveElementorPlan(pageUrl = getWpUrl()): Promise<BuilderAssetPlan> {
   const res = await wpHttpFetch(pageUrl);
   if (!res.ok) throw new Error(`Cannot fetch ${pageUrl}: ${res.status}`);
   const html = await res.text();
   const parsed = parseElementorHtml(html, pageUrl);
+  const live = extractLivePageAssets(html, pageUrl);
   const api = await fetchElementorMetaFromApi();
 
-  const base = WP_URL.replace(/\/$/, "");
+  const base = getWpUrl().replace(/\/$/, "");
   const stylesheets: string[] = [];
   const scripts: BuilderAssetPlan["scripts"] = [];
   const notes: string[] = [
@@ -64,8 +60,8 @@ export async function resolveElementorPlan(pageUrl = WP_URL): Promise<BuilderAss
     }
   }
 
-  // 3. Third-party (ElementsKit, theme)
-  for (const p of THIRD_PARTY_CSS) stylesheets.push(absUrl(base, p));
+  // 3. Live page CSS — every plugin/theme/core/upload URL in DOM order
+  stylesheets.push(...live.stylesheetUrls);
 
   // 4. Per-document CSS: kit + page + embedded templates
   const allDocIds = unique([
@@ -79,18 +75,25 @@ export async function resolveElementorPlan(pageUrl = WP_URL): Promise<BuilderAss
     stylesheets.push(absUrl(base, postCssPath(id)));
   }
 
-  // 5. Live page stylesheets (catch anything Elementor generated dynamically)
+  // 5. Parsed HTML stylesheets (dedupe with live)
   stylesheets.push(...parsed.stylesheetUrls);
 
-  // JS: plugin stack + live page scripts + third party
+  // JS: Elementor core stack + every live script (plugins, theme, core) in DOM order
   for (const p of ELEMENTOR_PLUGIN_JS) {
     scripts.push({ src: absUrl(base, p), handle: p.split("/").pop() });
   }
-  for (const p of THIRD_PARTY_JS) {
-    scripts.push({ src: absUrl(base, p), handle: p.split("/").pop() });
+  for (const s of live.scriptUrls) {
+    scripts.push({ src: s.src, id: s.id, handle: s.id });
   }
   for (const s of parsed.scriptUrls) {
     scripts.push({ src: s.src, id: s.id });
+  }
+
+  const pluginSlugs = live.pluginSlugs.filter(
+    (p) => p !== "elementor" && p !== "elementor-pro",
+  );
+  if (pluginSlugs.length) {
+    notes.push(`Third-party plugins: ${pluginSlugs.join(", ")}`);
   }
 
   const inlineScripts = parsed.inlineScripts.filter(
@@ -114,25 +117,44 @@ export async function resolveElementorPlan(pageUrl = WP_URL): Promise<BuilderAss
     templateIds: api.templateIds,
     widgets: parsed.widgets,
     snippetIds: api.snippetIds,
-    themes: ["astra", "astra-child-theme"],
+    themes: live.themeSlugs,
     notes,
   };
 }
 
 /** Download all planned assets to public/wp-migrated */
-export async function fetchElementorPlan(plan: BuilderAssetPlan): Promise<BuilderAssetPlan> {
+export async function fetchElementorPlan(
+  plan: BuilderAssetPlan,
+  pageHtml?: string,
+): Promise<BuilderAssetPlan> {
+  const siteSlug = getActiveSiteSlug();
+  if (siteSlug) {
+    let html = pageHtml;
+    if (!html) {
+      const res = await wpHttpFetch(plan.sourceUrl);
+      html = res.ok ? await res.text() : "";
+    }
+    if (html) {
+      await mirrorPageAssetGraph(buildPageAssetGraph(html, plan.sourceUrl), siteSlug);
+    }
+  }
+
   const registry = getCssRegistry();
 
   await downloadStylesheets(plan.stylesheets, registry);
   await downloadStylesheets(
-    plan.documentIds.map((id) => absUrl(WP_URL, postCssPath(id))),
+    plan.documentIds.map((id) => absUrl(getWpUrl(), postCssPath(id))),
     registry,
+  );
+  await downloadScripts(
+    plan.scripts.map((s) => s.src),
+    getJsRegistry(),
   );
 
   const cssOk = plan.stylesheets.filter((url) => registry.has(url)).length;
   const cssSkip = plan.stylesheets.length - cssOk;
 
-  const dir = path.join(MIGRATED_DATA_DIR, "elementor");
+  const dir = path.join(getMigratedDataDir(), "elementor");
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(
     path.join(dir, "asset-plan.json"),
@@ -167,6 +189,8 @@ export async function fetchElementorPlan(plan: BuilderAssetPlan): Promise<Builde
   );
   console.log(`   Downloaded ${cssOk} CSS files (${cssSkip} skipped)`);
   persistCssRegistry();
+  persistJsRegistry();
+  persistFontRegistry();
 
   return plan;
 }

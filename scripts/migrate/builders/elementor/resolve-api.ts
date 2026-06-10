@@ -1,5 +1,5 @@
 import { wpFetchAllLight } from "../../../../app/api/wp/client";
-import { WP_URL } from "../../../../app/api/wp/config";
+import { getWpUrl } from "../../../../app/api/wp/config";
 import { wpHttpFetch } from "../../../../app/api/wp/http";
 
 interface LightPost {
@@ -11,7 +11,7 @@ interface LightPost {
 }
 
 async function resolveKitId(): Promise<number | undefined> {
-  const base = WP_URL.replace(/\/$/, "");
+  const base = getWpUrl().replace(/\/$/, "");
 
   // Public REST (no auth) — Elementor kit CPT
   try {

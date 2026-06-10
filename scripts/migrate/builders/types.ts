@@ -28,6 +28,6 @@ export interface BuilderAssetPlan {
 export interface BuilderStrategy {
   id: PageBuilder;
   detect(html: string): boolean;
-  resolve(pageUrl: string, html: string): Promise<BuilderAssetPlan>;
-  fetch(plan: BuilderAssetPlan): Promise<BuilderAssetPlan>;
+  resolve(pageUrl: string, html?: string): Promise<BuilderAssetPlan>;
+  fetch(plan: BuilderAssetPlan, html?: string): Promise<BuilderAssetPlan>;
 }

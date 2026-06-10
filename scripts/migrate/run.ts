@@ -6,11 +6,12 @@ import { fetchElementorSystem } from "./fetch-elementor-system";
 import { fetchStyles } from "./fetch-styles";
 import { fetchStaticFiles } from "./fetch-static-files";
 import { snapshotVisual } from "./snapshot-visual";
-import { getMigratedDataDir, WP_URL } from "../../app/api/wp/config";
+import { getMigratedDataDir, getWpUrl } from "../../app/api/wp/config";
 import { appendMigrationLog } from "../../app/api/wp/migration-log";
 import { setMigrationPhase } from "../../app/api/wp/migration-status";
 import { upsertSite } from "../../app/api/wp/sites";
 import { resetCssRegistry } from "./lib/css-download";
+import { resetFontRegistry } from "./lib/font-download";
 import { resetJsRegistry } from "./lib/js-download";
 
 function phase(slug: string | undefined, message: string): void {
@@ -30,13 +31,14 @@ export async function runMigration(argv: string[]): Promise<void> {
   if (landingOnly && slug) {
     resetCssRegistry();
     resetJsRegistry();
+    resetFontRegistry();
     phase(slug, `\n🔄 Landing page migration`);
-    console.log(`   Source: ${WP_URL}`);
+    console.log(`   Source: ${getWpUrl()}`);
     console.log(`   Site folder: sites/${slug}/\n`);
     upsertSite({
       slug,
-      url: WP_URL,
-      name: new URL(WP_URL).hostname,
+      url: getWpUrl(),
+      name: new URL(getWpUrl()).hostname,
       status: "migrating",
       stage: "landing",
     });
@@ -49,8 +51,8 @@ export async function runMigration(argv: string[]): Promise<void> {
       appendMigrationLog(slug, `[error] ${message}`);
       upsertSite({
         slug,
-        url: WP_URL,
-        name: new URL(WP_URL).hostname,
+        url: getWpUrl(),
+        name: new URL(getWpUrl()).hostname,
         status: "failed",
         error: message,
       });
@@ -60,16 +62,17 @@ export async function runMigration(argv: string[]): Promise<void> {
 
   resetCssRegistry();
   resetJsRegistry();
+  resetFontRegistry();
 
   phase(slug, `\n🔄 WordPress → Remix migration`);
-  console.log(`   Source: ${WP_URL}`);
+  console.log(`   Source: ${getWpUrl()}`);
   if (slug) console.log(`   Site folder: sites/${slug}/\n`);
 
   if (slug) {
     upsertSite({
       slug,
-      url: WP_URL,
-      name: new URL(WP_URL).hostname,
+      url: getWpUrl(),
+      name: new URL(getWpUrl()).hostname,
       status: "migrating",
     });
   }
@@ -79,7 +82,7 @@ export async function runMigration(argv: string[]): Promise<void> {
   try {
     if (all || stylesOnly || contentOnly) {
       phase(slug, "📐 Fetching styles (pixel-perfect CSS clone)");
-      stylesManifest = await fetchStyles(WP_URL);
+      stylesManifest = await fetchStyles(getWpUrl());
       console.log(
         `   ${stylesManifest.stylesheets.length} stylesheets, ${stylesManifest.inlineStyles.length} inline bundles\n`,
       );
@@ -97,7 +100,7 @@ export async function runMigration(argv: string[]): Promise<void> {
       }
 
       phase(slug, "📦 Fetching content (REST / GraphQL)");
-      const staticFiles = await fetchStaticFiles(WP_URL);
+      const staticFiles = await fetchStaticFiles(getWpUrl());
       let manifest = await fetchContent(stylesManifest!);
       manifest = { ...manifest, staticFiles };
       console.log(
@@ -109,19 +112,15 @@ export async function runMigration(argv: string[]): Promise<void> {
         console.log(`   Builder: ${manifest.pageBuilder ?? "unknown"}\n`);
       }
 
-      if (manifest.pageBuilder === "elementor") {
-        phase(slug, "Running Elementor builder pipeline");
-        await runBuilderPipeline(WP_URL);
+      phase(slug, `Running ${manifest.pageBuilder ?? "unknown"} builder pipeline`);
+      const pipeline = await runBuilderPipeline(getWpUrl());
+      manifest = { ...manifest, pageBuilder: pipeline.builder };
+
+      if (pipeline.builder === "elementor") {
         phase(slug, "Fetching live Elementor CSS/JS enqueue order");
-        await fetchElementorAssets(`${WP_URL.replace(/\/$/, "")}/`);
+        await fetchElementorAssets(`${getWpUrl().replace(/\/$/, "")}/`);
         const elementor = await fetchElementorSystem();
         manifest = { ...manifest, elementor };
-      } else if (
-        manifest.pageBuilder === "gutenberg" ||
-        manifest.pageBuilder === "classic"
-      ) {
-        phase(slug, "Running block builder pipeline");
-        await runBuilderPipeline(WP_URL);
       }
 
       phase(slug, "🎨 Crawling rendered pages (full-site HTML)");
@@ -168,8 +167,8 @@ export async function runMigration(argv: string[]): Promise<void> {
         const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
         upsertSite({
           slug,
-          url: WP_URL,
-          name: manifest.site?.name ?? new URL(WP_URL).hostname,
+          url: getWpUrl(),
+          name: manifest.site?.name ?? new URL(getWpUrl()).hostname,
           status: "ready",
           stage: "full",
           migratedAt: manifest.migratedAt,
@@ -189,8 +188,8 @@ export async function runMigration(argv: string[]): Promise<void> {
       appendMigrationLog(slug, `[error] ${message}`);
       upsertSite({
         slug,
-        url: WP_URL,
-        name: new URL(WP_URL).hostname,
+        url: getWpUrl(),
+        name: new URL(getWpUrl()).hostname,
         status: "failed",
         error: message,
       });

@@ -1,6 +1,6 @@
 import { getManifest } from "./load-migrated";
 import { getSite } from "./sites";
-import { WP_URL } from "./config";
+import { getWpUrl } from "./config";
 
 /** Per-site WordPress origin (manifest → registry → env fallback). */
 export function getWordPressSourceUrl(siteSlug?: string): string {
@@ -14,5 +14,5 @@ export function getWordPressSourceUrl(siteSlug?: string): string {
     if (entry?.url) return entry.url.replace(/\/$/, "");
   }
 
-  return WP_URL.replace(/\/$/, "");
+  return getWpUrl().replace(/\/$/, "");
 }

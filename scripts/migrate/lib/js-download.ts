@@ -7,6 +7,7 @@ import {
 } from "../../../app/api/wp/config";
 import { mergeJsRegistry } from "../../../app/api/wp/js-registry";
 import { wpHttpFetch } from "../../../app/api/wp/http";
+import { assetUrlAliases } from "./normalize-asset-url";
 import { mapPool } from "./pool";
 import { resolveUrl } from "./css-download";
 
@@ -71,8 +72,9 @@ export async function downloadScript(
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const body = await res.text();
     await fs.writeFile(diskPath, body, "utf8");
-    registry.set(absoluteUrl, publicPath);
-    if (normalized !== absoluteUrl) registry.set(normalized, publicPath);
+    for (const alias of assetUrlAliases(absoluteUrl)) {
+      registry.set(alias, publicPath);
+    }
     return { path: publicPath, cached: false };
   } catch {
     return null;

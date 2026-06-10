@@ -40,7 +40,16 @@ export interface WpSiteMeta {
   timezone_string: string;
 }
 
-export type PageBuilder = "elementor" | "gutenberg" | "classic" | "unknown";
+export type PageBuilder =
+  | "elementor"
+  | "gutenberg"
+  | "classic"
+  | "divi"
+  | "wpbakery"
+  | "beaver"
+  | "brizy"
+  | "oxygen"
+  | "unknown";
 export type RouteRenderMode = "api" | "shell";
 
 export interface WpRoute {

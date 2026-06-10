@@ -3,7 +3,7 @@ import path from "node:path";
 import {
   getMigratedDataDir,
   getMigratedPublicDir,
-  WP_URL,
+  getWpUrl,
 } from "../../app/api/wp/config";
 import type { MigratedStaticFile } from "../../app/api/wp/types";
 import { wpHttpFetch } from "../../app/api/wp/http";
@@ -33,7 +33,7 @@ function publicPathFor(urlPath: string): string {
 }
 
 export async function fetchStaticFiles(
-  siteUrl = WP_URL,
+  siteUrl = getWpUrl(),
 ): Promise<MigratedStaticFile[]> {
   console.log("📄 Mirroring robots.txt, llms.txt, sitemap, and AI files…");
 
