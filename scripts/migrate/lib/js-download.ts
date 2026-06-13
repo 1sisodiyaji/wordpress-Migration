@@ -6,7 +6,7 @@ import {
   getMigratedPublicUrlPrefix,
 } from "../../../app/api/wp/config";
 import { mergeJsRegistry } from "../../../app/api/wp/js-registry";
-import { wpHttpFetch } from "../../../app/api/wp/http";
+import { wpHttpFetchText } from "../../../app/api/wp/http";
 import { assetUrlAliases } from "./normalize-asset-url";
 import { mapPool } from "./pool";
 import { resolveUrl } from "./css-download";
@@ -68,9 +68,8 @@ export async function downloadScript(
   const diskPath = path.join(dir, filename);
 
   try {
-    const res = await wpHttpFetch(absoluteUrl);
+    const { response: res, text: body } = await wpHttpFetchText(absoluteUrl);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const body = await res.text();
     await fs.writeFile(diskPath, body, "utf8");
     for (const alias of assetUrlAliases(absoluteUrl)) {
       registry.set(alias, publicPath);
@@ -87,7 +86,7 @@ export async function downloadScripts(
   siteSlug?: string,
 ): Promise<void> {
   const unique = [...new Set(urls.filter((u) => u.startsWith("http")))];
-  const concurrency = Number(process.env.MIGRATE_JS_CONCURRENCY ?? "8");
+  const concurrency = Number(process.env.MIGRATE_JS_CONCURRENCY ?? "4");
   await mapPool(unique, concurrency, (url) =>
     downloadScript(url, registry, siteSlug),
   );

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 const LOAD_TIMEOUT_MS = 45_000;
@@ -27,11 +28,13 @@ export function IframePane({
 }: IframePaneProps) {
   const [loading, setLoading] = useState(true);
   const [timedOut, setTimedOut] = useState(false);
+  const [timeoutDismissed, setTimeoutDismissed] = useState(false);
   const showOverlay = loading || forceLoading;
 
   useEffect(() => {
     setLoading(true);
     setTimedOut(false);
+    setTimeoutDismissed(false);
 
     const timer = window.setTimeout(() => {
       setTimedOut(true);
@@ -56,9 +59,22 @@ export function IframePane({
         </div>
       ) : null}
 
-      {timedOut ? (
-        <div className="absolute inset-x-0 top-0 z-20 border-b border-amber-200 bg-amber-50 px-3 py-1.5 text-center text-xs text-amber-800">
-          {title} is taking longer than expected — content may still be loading.
+      {timedOut && !timeoutDismissed ? (
+        <div className="absolute inset-x-0 top-0 z-20 flex items-center gap-2 border-b border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-800">
+          <p className="min-w-0 flex-1 text-center">
+            {title} is taking longer than expected — content may still be loading.
+          </p>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-6 shrink-0 text-amber-800 hover:bg-amber-100 hover:text-amber-900"
+            title="Dismiss"
+            aria-label="Dismiss loading notice"
+            onClick={() => setTimeoutDismissed(true)}
+          >
+            <X className="size-3.5" />
+          </Button>
         </div>
       ) : null}
 

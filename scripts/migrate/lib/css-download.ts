@@ -6,7 +6,7 @@ import {
   getMigratedPublicUrlPrefix,
 } from "../../../app/api/wp/config";
 import { mergeCssRegistry } from "../../../app/api/wp/css-registry";
-import { wpHttpFetch } from "../../../app/api/wp/http";
+import { wpHttpFetchText } from "../../../app/api/wp/http";
 import { rewriteCssFontUrls } from "./font-download";
 import { assetUrlAliases } from "./normalize-asset-url";
 import { mapPool } from "./pool";
@@ -50,9 +50,9 @@ function sanitizeFilename(url: string, index: number): string {
 }
 
 export async function downloadCss(url: string, dest: string): Promise<void> {
-  const res = await wpHttpFetch(url);
+  const { response: res, text } = await wpHttpFetchText(url);
   if (!res.ok) throw new Error(`Failed to download CSS ${url}: ${res.status}`);
-  let css = await res.text();
+  let css = text;
   css = await rewriteCssFontUrls(css, url);
   css = css.replace(/url\((['"]?)([^'")]+)\1\)/g, (match, quote, assetUrl) => {
     if (assetUrl.startsWith("data:")) return match;
@@ -102,6 +102,6 @@ export async function downloadStylesheets(
   registry = getCssRegistry(),
 ): Promise<void> {
   const unique = [...new Set(urls)];
-  const concurrency = Number(process.env.MIGRATE_CSS_CONCURRENCY ?? "8");
+  const concurrency = Number(process.env.MIGRATE_CSS_CONCURRENCY ?? "4");
   await mapPool(unique, concurrency, (url) => downloadStylesheet(url, registry));
 }

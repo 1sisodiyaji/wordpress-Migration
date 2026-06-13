@@ -6,16 +6,15 @@ import {
   getMigratedPublicUrlPrefix,
   getWpUrl,
 } from "../../app/api/wp/config";
-import { wpHttpFetch } from "../../app/api/wp/http";
+import { wpHttpFetch, wpHttpFetchText } from "../../app/api/wp/http";
 import type { StylesManifest } from "../../app/api/wp/types";
-import { detectSitePageBuilder } from "./detect-builder";
 import {
   downloadStylesheet,
   getCssRegistry,
   persistCssRegistry,
 } from "./lib/css-download";
 import { buildPageAssetGraph } from "./lib/asset-graph";
-import { extractPageFromHtml } from "./lib/html-extract";
+import { detectBuilderFromHtml, extractPageFromHtml } from "./lib/html-extract";
 import { mirrorPageAssetGraph } from "./lib/mirror-page-assets";
 import { getActiveSiteSlug } from "../../app/api/wp/config";
 import { routeToPageKey } from "./lib/page-key";
@@ -25,15 +24,20 @@ const inlinePath = () =>
 const pagesDir = () => path.join(getMigratedDataDir(), "pages");
 
 export async function fetchStyles(pageUrl = getWpUrl()): Promise<StylesManifest> {
-  const res = await wpHttpFetch(pageUrl);
+  console.log(`  → Fetching homepage HTML: ${pageUrl}`);
+  const { response: res, text: html } = await wpHttpFetchText(pageUrl);
   if (!res.ok) throw new Error(`Cannot fetch ${pageUrl}: ${res.status}`);
-  const html = await res.text();
+  console.log(`  ✓ Homepage HTML (${(html.length / 1024).toFixed(0)} KB)`);
+
   const extracted = extractPageFromHtml(html, pageUrl);
-  const pageBuilder = await detectSitePageBuilder(pageUrl);
+  const pageBuilder = detectBuilderFromHtml(html);
+  console.log(`  ✓ Page builder: ${pageBuilder}`);
 
   const siteSlug = getActiveSiteSlug();
   if (siteSlug) {
-    await mirrorPageAssetGraph(buildPageAssetGraph(html, pageUrl), siteSlug);
+    console.log("  → Mirroring homepage assets (core / theme / plugin layers)…");
+    const graph = buildPageAssetGraph(html, pageUrl);
+    await mirrorPageAssetGraph(graph, siteSlug, { html, pageUrl });
   }
 
   const registry = getCssRegistry();

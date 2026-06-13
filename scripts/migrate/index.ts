@@ -5,6 +5,11 @@ import { bootstrapMigrateEnv } from "./bootstrap";
 bootstrapMigrateEnv(process.argv.slice(2));
 
 const slug = process.env.SITE_SLUG;
+if (slug) {
+  const { installMigrationLogger } = await import("./lib/logger");
+  installMigrationLogger(slug);
+}
+
 const { runMigration } = await import("./run");
 
 try {

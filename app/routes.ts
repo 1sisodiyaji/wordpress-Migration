@@ -5,10 +5,19 @@ export default [
   route("migrate/:slug/logs", "routes/migrate.$slug.logs.tsx"),
   route("migrate/:slug", "routes/migrate.$slug.tsx"),
   route("workspace/:slug/metrics", "routes/workspace.$slug.metrics.ts"),
+  route("workspace/:slug/browse", "routes/workspace.$slug.browse.ts"),
+  route("workspace/:slug/preview", "routes/workspace.$slug.preview.ts"),
   route("workspace/:slug", "routes/workspace.$slug.tsx"),
   route("preview/:site/sync", "routes/preview.$site.sync.ts"),
   route("preview/:site/document", "routes/preview.$site.document.ts"),
   route("preview/:site", "routes/preview.$site.tsx"),
+  route("puck", "routes/puck.hub.tsx", [
+    index("routes/puck.hub._index.tsx"),
+    route(":site", "routes/puck.$site.tsx", [
+      index("routes/puck.$site._index.tsx"),
+      route("view/*", "routes/puck.$site.view.$.tsx"),
+    ]),
+  ]),
   route(":site", "routes/site.tsx", [
     index("routes/site._index.tsx"),
     route("*", "routes/site.$.tsx"),

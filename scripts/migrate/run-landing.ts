@@ -4,7 +4,6 @@ import { getMigratedDataDir, getWpUrl } from "../../app/api/wp/config";
 import type { MigrationManifest, WpRoute } from "../../app/api/wp/types";
 import { setMigrationPhase } from "../../app/api/wp/migration-status";
 import { upsertSite } from "../../app/api/wp/sites";
-import { detectSitePageBuilder } from "./detect-builder";
 import { crawlHomePage } from "./fetch-elementor";
 import { fetchStyles } from "./fetch-styles";
 
@@ -17,7 +16,7 @@ export async function runLandingMigration(slug: string): Promise<void> {
   );
 
   setMigrationPhase(slug, "Crawling homepage");
-  const pageBuilder = await detectSitePageBuilder(getWpUrl());
+  const pageBuilder = styles.pageBuilder ?? "unknown";
   const homeRoute: WpRoute = {
     path: "/",
     wpLink: `${getWpUrl()}/`,

@@ -135,7 +135,10 @@ export async function fetchElementorPlan(
       html = res.ok ? await res.text() : "";
     }
     if (html) {
-      await mirrorPageAssetGraph(buildPageAssetGraph(html, plan.sourceUrl), siteSlug);
+      await mirrorPageAssetGraph(buildPageAssetGraph(html, plan.sourceUrl), siteSlug, {
+        html,
+        pageUrl: plan.sourceUrl,
+      });
     }
   }
 

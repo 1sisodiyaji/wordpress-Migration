@@ -1,11 +1,6 @@
 import { spawn } from "node:child_process";
-import fs from "node:fs";
 import path from "node:path";
-import {
-  appendMigrationLog,
-  getMigrationLogPath,
-  initMigrationLog,
-} from "@/api/wp/migration-log";
+import { appendMigrationLog, initMigrationLog } from "@/api/wp/migration-log";
 import { setMigrationPhase } from "@/api/wp/migration-status";
 import {
   normalizeWordPressUrl,
@@ -35,15 +30,6 @@ export function startMigration(
     status: "migrating",
   });
 
-  let logFd: number;
-  try {
-    logFd = fs.openSync(getMigrationLogPath(slug), "a");
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    appendMigrationLog(slug, `[error] Cannot open log file: ${message}`);
-    throw err;
-  }
-
   appendMigrationLog(slug, `[system] Launching: node tsx ${script}`);
 
   const migrateArgs =
@@ -54,7 +40,7 @@ export function startMigration(
   const child = spawn(process.execPath, [tsxCli, script, ...migrateArgs], {
     cwd: process.cwd(),
     detached: true,
-    stdio: ["ignore", logFd, logFd],
+    stdio: "ignore",
     windowsHide: true,
     env: {
       ...process.env,

@@ -94,7 +94,10 @@ export async function fetchGenericPlan(
   const siteSlug = getActiveSiteSlug();
   if (siteSlug && pageHtml) {
     const graph = buildPageAssetGraph(pageHtml, plan.sourceUrl);
-    await mirrorPageAssetGraph(graph, siteSlug);
+    await mirrorPageAssetGraph(graph, siteSlug, {
+      html: pageHtml,
+      pageUrl: plan.sourceUrl,
+    });
   }
 
   const cssRegistry = getCssRegistry();

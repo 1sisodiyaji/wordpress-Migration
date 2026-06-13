@@ -1,5 +1,15 @@
 import { Outlet, redirect, useLoaderData } from "react-router";
 import type { Route } from "./+types/site";
+
+/** App route prefixes — must not be treated as migrated site slugs. */
+const RESERVED_SITE_SLUGS = new Set([
+  "puck",
+  "migrate",
+  "workspace",
+  "preview",
+  "api",
+  "favicon.ico",
+]);
 import { ElementorClientFixes } from "@/components/wp/ElementorClientFixes";
 import { ElementorFrontendLoaderServer } from "@/components/wp/ElementorFrontendLoaderServer";
 import { ElementorGlobalAssets } from "@/components/wp/ElementorGlobalAssets";
@@ -10,6 +20,12 @@ import { getSite, siteHasData } from "@/api/wp/sites";
 
 export async function loader({ params }: Route.LoaderArgs) {
   const site = params.site!;
+
+  if (RESERVED_SITE_SLUGS.has(site)) {
+    if (site === "puck") throw redirect("/puck");
+    throw redirect("/");
+  }
+
   const entry = getSite(site);
   const manifest = getManifest(site);
 

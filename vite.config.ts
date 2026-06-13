@@ -4,9 +4,13 @@ import { reactRouter } from "@react-router/dev/vite";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 import tsconfigPaths from "vite-tsconfig-paths";
+import { viteMigrationLogsApi } from "./plugins/vite-migration-logs-api";
+import { viteMigratedSitesStatic } from "./plugins/vite-migrated-sites-static";
 import { vitePreviewStatic } from "./plugins/vite-preview-static";
+import { viteWorkspaceIframe } from "./plugins/vite-workspace-iframe";
 
-const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "app");
+const rootDir = path.dirname(fileURLToPath(import.meta.url));
+const appDir = path.resolve(rootDir, "app");
 
 export default defineConfig({
   resolve: {
@@ -22,12 +26,25 @@ export default defineConfig({
   ssr: {
     noExternal: ["react-resizable-panels"],
   },
-  plugins: [vitePreviewStatic(), tailwindcss(), reactRouter(), tsconfigPaths()],
+  plugins: [
+    viteMigrationLogsApi(),
+    viteMigratedSitesStatic(),
+    vitePreviewStatic(),
+    viteWorkspaceIframe(),
+    tailwindcss(),
+    reactRouter(),
+    tsconfigPaths({
+      root: rootDir,
+      projects: [path.join(rootDir, "tsconfig.json")],
+      ignoreConfigErrors: true,
+    }),
+  ],
   server: {
     watch: {
       // Migration writes thousands of files under sites/ — ignore so dev UI
       // doesn't full-reload and freeze the log viewer.
       ignored: [
+        "**/puck/**",
         "**/sites/**",
         "**/public/sites/**",
         "**/public/sitemap*.xml",

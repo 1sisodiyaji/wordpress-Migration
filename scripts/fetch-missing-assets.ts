@@ -135,7 +135,7 @@ async function fetchLiveAssetOrder(): Promise<{
   if (!res.ok) throw new Error(`Cannot fetch ${pageUrl}: ${res.status}`);
   const html = await res.text();
   const graph = buildPageAssetGraph(html, pageUrl);
-  await mirrorPageAssetGraph(graph, slug);
+  await mirrorPageAssetGraph(graph, slug, { html, pageUrl: pageUrl });
 
   const stylesheets = [
     ...new Set([

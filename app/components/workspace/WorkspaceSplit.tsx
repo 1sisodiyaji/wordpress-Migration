@@ -38,14 +38,14 @@ export function WorkspaceSplit({
       orientation="horizontal"
       className={className}
     >
-      <ResizablePanel id="live" defaultSize="50%" minSize={`${MIN_PANE_PX}px`}>
+      <ResizablePanel id="live" defaultSize="50%" minSize={`${MIN_PANE_PX}px`} className="flex flex-col">
         {leftLabel}
-        <div className="min-h-0 flex-1 scrollbar-thin">{left}</div>
+        <div className="min-h-0 flex-1 overflow-hidden">{left}</div>
       </ResizablePanel>
       <ResizableHandle />
-      <ResizablePanel id="preview" defaultSize="50%" minSize={`${MIN_PANE_PX}px`}>
+      <ResizablePanel id="preview" defaultSize="50%" minSize={`${MIN_PANE_PX}px`} className="flex flex-col">
         {rightLabel}
-        <div className="min-h-0 flex-1 scrollbar-thin">{right}</div>
+        <div className="min-h-0 flex-1 overflow-hidden">{right}</div>
       </ResizablePanel>
     </ResizablePanelGroup>
   );

@@ -25,5 +25,11 @@
     "**/*.tsx",
     ".react-router/types/**/*"
   ],
-  "exclude": ["node_modules", "old_wp_data/**", "scripts/**", "build/**"]
+  "exclude": [
+    "node_modules",
+    "old_wp_data/**",
+    "scripts/**",
+    "build/**",
+    "puck/**"
+  ]
 }

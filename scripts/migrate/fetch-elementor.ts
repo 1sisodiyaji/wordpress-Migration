@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { getMigratedDataDir } from "../../app/api/wp/config";
 import { setMigrationProgress } from "../../app/api/wp/migration-status";
-import { wpHttpFetch } from "../../app/api/wp/http";
+import { wpHttpFetchText } from "../../app/api/wp/http";
 import type {
   MigrationManifest,
   PageBuilder,
@@ -49,10 +49,8 @@ async function crawlRoute(
   useFullBody: boolean,
 ): Promise<{ key: string; pageBuilder: HtmlPageBuilder; isElementor: boolean }> {
   const url = route.wpLink;
-  const res = await wpHttpFetch(url);
+  const { response: res, text: html } = await wpHttpFetchText(url);
   if (!res.ok) throw new Error(`Cannot fetch ${url}: ${res.status}`);
-
-  const html = await res.text();
   const extracted = extractPageFromHtml(html, url);
   const graph = buildPageAssetGraph(html, url);
 
@@ -62,7 +60,7 @@ async function crawlRoute(
     if (route.postId && !graph.elementorDocumentIds.includes(route.postId)) {
       graph.elementorDocumentIds.push(route.postId);
     }
-    await mirrorPageAssetGraph(graph, siteSlug);
+    await mirrorPageAssetGraph(graph, siteSlug, { html, pageUrl: url });
   }
 
   const rawHtml =

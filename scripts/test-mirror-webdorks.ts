@@ -8,12 +8,12 @@ import { buildPageAssetGraph } from "./migrate/lib/asset-graph";
 import { mirrorPageAssetGraph } from "./migrate/lib/mirror-page-assets";
 import { bootstrapMigrateEnv } from "./migrate/bootstrap";
 
-const slug = "webdorks-com";
+const slug = "radius-ois-ai";
 process.env.SITE_SLUG = slug;
-process.env.WORDPRESS_URL = "https://www.webdorks.com";
+process.env.WORDPRESS_URL = "https://radius-ois.ai";
 bootstrapMigrateEnv([]);
 
-const url = "https://www.webdorks.com/";
+const url = "https://radius-ois.ai/";
 const html = await (await wpHttpFetch(url)).text();
 const graph = buildPageAssetGraph(html, url);
 console.log("Inline style blocks:", graph.inlineStyles.length);

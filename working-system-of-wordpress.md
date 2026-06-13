@@ -9,3 +9,19 @@ Good, I have enough. Let me build a clean visual breakdown for you.Here's the fu
 **If you want to publish on WordPress.org**, all plugins must be compatible with the GNU General Public License (GPL) — this ensures users can freely use, modify, and distribute the software.
 
 Now — what are you planning to build? Knowing your use case will help me give you much more specific guidance on which hooks to use, how to structure your database interactions, and whether you need custom post types, REST API endpoints, or just a simple settings page.
+
+
+
+
+
+Testing URL 
+https://radius-ois.ai
+https://blog.webex.com
+https://paralleluniverse.com/ua
+https://tsra.gov.au
+https://siberia.es
+https://lumena-partners.com/
+https://yazdanistudio.com/home
+https://www.domitur.pt/
+https://digital-culture.valmax.dev/
+https://normalisboring.es/

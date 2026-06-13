@@ -71,7 +71,10 @@ export async function fetchBlockPlan(
 ): Promise<BuilderAssetPlan> {
   const siteSlug = getActiveSiteSlug();
   if (siteSlug && pageHtml) {
-    await mirrorPageAssetGraph(buildPageAssetGraph(pageHtml, plan.sourceUrl), siteSlug);
+    await mirrorPageAssetGraph(buildPageAssetGraph(pageHtml, plan.sourceUrl), siteSlug, {
+      html: pageHtml,
+      pageUrl: plan.sourceUrl,
+    });
   }
 
   const registry = getCssRegistry();

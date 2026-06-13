@@ -1,5 +1,5 @@
 import { getWpUrl } from "../../../app/api/wp/config";
-import { wpHttpFetch } from "../../../app/api/wp/http";
+import { wpHttpFetchText } from "../../../app/api/wp/http";
 import type { PageBuilder } from "../../../app/api/wp/types";
 import { detectSitePageBuilder } from "../detect-builder";
 import { detectBuilderFromHtml } from "../lib/html-extract";
@@ -79,8 +79,13 @@ export async function runBuilderPipeline(
   pageUrl = getWpUrl(),
 ): Promise<{ builder: PageBuilder; plan: BuilderAssetPlan }> {
   console.log("🔍 Detecting page builder…");
-  const res = await wpHttpFetch(pageUrl);
-  const html = res.ok ? await res.text() : "";
+  let html = "";
+  try {
+    const { response: res, text } = await wpHttpFetchText(pageUrl);
+    html = res.ok ? text : "";
+  } catch {
+    html = "";
+  }
   const detected = html ? detectBuilderFromHtml(html) : await detectSitePageBuilder(pageUrl);
   console.log(`   Builder: ${detected}`);
 

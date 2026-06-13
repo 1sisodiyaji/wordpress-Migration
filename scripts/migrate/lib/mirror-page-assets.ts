@@ -22,6 +22,7 @@ import {
   loadSitePluginAssets,
   mergeSitePluginAssets,
 } from "./plugin-assets-merge";
+import { mirrorWpContentPluginAssets } from "./mirror-wp-content-assets";
 
 function headAssetsPath(siteSlug: string): string {
   return path.join(getMigratedDataDir(siteSlug), "head-assets.json");
@@ -64,7 +65,25 @@ async function fetchElementorPostCss(
 export async function mirrorPageAssetGraph(
   graph: PageAssetGraph,
   siteSlug: string,
+  context?: { html: string; pageUrl: string },
 ): Promise<void> {
+  if (context?.html && context.pageUrl) {
+    const wpContent = await mirrorWpContentPluginAssets(
+      context.html,
+      context.pageUrl,
+      siteSlug,
+    );
+    graph.discoveredStylesheets = [
+      ...new Set([...graph.discoveredStylesheets, ...wpContent.css]),
+    ];
+    graph.discoveredScripts = [
+      ...new Set([...graph.discoveredScripts, ...wpContent.js]),
+    ];
+    for (const slug of wpContent.tree.plugins.map((p) => p.slug)) {
+      if (!graph.pluginSlugs.includes(slug)) graph.pluginSlugs.push(slug);
+    }
+  }
+
   const cssReg = getCssRegistry();
   const allCss = [
     ...new Set([

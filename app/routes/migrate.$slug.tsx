@@ -11,6 +11,7 @@ import type { Route } from "./+types/migrate.$slug";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { migrationLogsPollPath } from "@/lib/migration-logs-poll";
 import { readMigrationLog } from "@/api/wp/migration-log";
 import { readMigrationStatus } from "@/api/wp/migration-status";
 import { startMigration } from "@/api/migration/start-migration.server";
@@ -109,10 +110,13 @@ export default function MigrateProgress({ loaderData }: Route.ComponentProps) {
 
     const poll = async () => {
       try {
-        const res = await fetch(`/migrate/${slug}/logs?t=${Date.now()}`, {
-          cache: "no-store",
-        });
+        const res = await fetch(
+          `${migrationLogsPollPath(slug)}?t=${Date.now()}`,
+          { cache: "no-store", headers: { Accept: "application/json" } },
+        );
         if (!res.ok || cancelled) return;
+        const contentType = res.headers.get("content-type") ?? "";
+        if (!contentType.includes("application/json")) return;
         const data = (await res.json()) as PollPayload;
         setLogs(data.logs);
         if (data.entry) setEntry(data.entry);

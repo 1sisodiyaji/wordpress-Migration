@@ -3,7 +3,7 @@ import "dotenv/config";
 import * as cheerio from "cheerio";
 import { wpHttpFetch } from "../app/api/wp/http";
 
-const url = process.argv[2] ?? "https://www.webdorks.com/";
+const url = process.argv[2] ?? "https://radius-ois.ai/";
 const html = await (await wpHttpFetch(url)).text();
 const $ = cheerio.load(html);
 
