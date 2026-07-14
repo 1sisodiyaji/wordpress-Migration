@@ -1,0 +1,232 @@
+import { useState } from "react";
+import type { SourceType } from "../api";
+import { WpFileUploads, type WpUploadParts } from "./WpFileUploads";
+
+export interface PluginPullCreds {
+  wpUrl: string;
+  username: string;
+  appPassword: string;
+  copyMedia: boolean;
+}
+
+interface Props {
+  onClose: () => void;
+  onCreate: (body: {
+    name: string;
+    sourceType: SourceType;
+    url?: string;
+    wpParts?: WpUploadParts;
+    pluginZip?: File;
+    pluginPull?: PluginPullCreds;
+  }) => Promise<void>;
+}
+
+export function NewProjectPanel({ onClose, onCreate }: Props) {
+  const [tab, setTab] = useState<SourceType>("url");
+  const [name, setName] = useState("");
+  const [url, setUrl] = useState("");
+  const [sql, setSql] = useState<File | null>(null);
+  const [wpContent, setWpContent] = useState<File | null>(null);
+  const [wpConfig, setWpConfig] = useState<File | null>(null);
+
+  // Plugin export state.
+  const [pluginMode, setPluginMode] = useState<"zip" | "pull">("zip");
+  const [pluginZip, setPluginZip] = useState<File | null>(null);
+  const [wpUrl, setWpUrl] = useState("");
+  const [wpUser, setWpUser] = useState("");
+  const [appPassword, setAppPassword] = useState("");
+  const [copyMedia, setCopyMedia] = useState(true);
+
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      if (tab === "url" && !url.trim()) {
+        setError("Enter a website URL");
+        return;
+      }
+      if (tab === "files" && !sql && !wpContent && !wpConfig) {
+        setError("Upload at least one WordPress file (SQL, wp-content zip, or wp-config.php)");
+        return;
+      }
+      if (tab === "plugin" && pluginMode === "zip" && !pluginZip) {
+        setError("Choose a wp-grape-export .zip bundle");
+        return;
+      }
+      if (tab === "plugin" && pluginMode === "pull" && (!wpUrl.trim() || !wpUser.trim() || !appPassword.trim())) {
+        setError("Enter the WordPress URL, username and application password");
+        return;
+      }
+
+      const fallbackName =
+        tab === "url" ? url : tab === "plugin" && pluginMode === "pull" ? wpUrl : "Imported site";
+
+      await onCreate({
+        name: name.trim() || fallbackName,
+        sourceType: tab,
+        url: tab === "url" ? url.trim() : undefined,
+        wpParts:
+          tab === "files"
+            ? { sql: sql ?? undefined, wpContent: wpContent ?? undefined, wpConfig: wpConfig ?? undefined }
+            : undefined,
+        pluginZip: tab === "plugin" && pluginMode === "zip" ? (pluginZip ?? undefined) : undefined,
+        pluginPull:
+          tab === "plugin" && pluginMode === "pull"
+            ? {
+                wpUrl: wpUrl.trim(),
+                username: wpUser.trim(),
+                appPassword: appPassword.trim(),
+                copyMedia,
+              }
+            : undefined,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>New project</h2>
+          <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">×</button>
+        </div>
+
+        <div className="tabs">
+          <button type="button" className={tab === "url" ? "active" : ""} onClick={() => setTab("url")}>
+            Website URL
+          </button>
+          <button type="button" className={tab === "files" ? "active" : ""} onClick={() => setTab("files")}>
+            WordPress files
+          </button>
+          <button type="button" className={tab === "plugin" ? "active" : ""} onClick={() => setTab("plugin")}>
+            Plugin export
+          </button>
+        </div>
+
+        <form onSubmit={submit} className="modal-body">
+          <label>
+            Project name
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="My website" />
+          </label>
+
+          {tab === "url" && (
+            <label>
+              Website URL
+              <input
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="https://example.com"
+                type="url"
+                required
+              />
+            </label>
+          )}
+
+          {tab === "files" && (
+            <WpFileUploads
+              sql={sql}
+              wpContent={wpContent}
+              wpConfig={wpConfig}
+              onSqlChange={setSql}
+              onWpContentChange={setWpContent}
+              onWpConfigChange={setWpConfig}
+            />
+          )}
+
+          {tab === "plugin" && (
+            <div className="plugin-source">
+              <p className="muted">
+                Best fidelity: shortcodes, Elementor &amp; Theme Builder templates are resolved inside WordPress
+                by the <code>wp-grape-export</code> plugin.
+              </p>
+              <div className="tabs tabs-sub">
+                <button type="button" className={pluginMode === "zip" ? "active" : ""} onClick={() => setPluginMode("zip")}>
+                  Upload ZIP
+                </button>
+                <button type="button" className={pluginMode === "pull" ? "active" : ""} onClick={() => setPluginMode("pull")}>
+                  Pull from WordPress
+                </button>
+              </div>
+
+              {pluginMode === "zip" ? (
+                <label className="file-drop">
+                  wp-grape-export bundle (.zip)
+                  <input
+                    type="file"
+                    accept=".zip"
+                    onChange={(e) => setPluginZip(e.target.files?.[0] ?? null)}
+                  />
+                  {pluginZip && <span className="file-name">{pluginZip.name}</span>}
+                </label>
+              ) : (
+                <>
+                  <label>
+                    WordPress URL
+                    <input
+                      value={wpUrl}
+                      onChange={(e) => setWpUrl(e.target.value)}
+                      placeholder="http://localhost:8082"
+                      type="url"
+                    />
+                  </label>
+                  <label>
+                    Admin username
+                    <input value={wpUser} onChange={(e) => setWpUser(e.target.value)} placeholder="admin" />
+                  </label>
+                  <label>
+                    {/localhost|127\.0\.0\.1/i.test(wpUrl)
+                      ? "Password (wp-admin)"
+                      : "Application Password"}
+                    <input
+                      value={appPassword}
+                      onChange={(e) => setAppPassword(e.target.value)}
+                      placeholder={
+                        /localhost|127\.0\.0\.1/i.test(wpUrl)
+                          ? "Normal wp-admin password"
+                          : "xxxx xxxx xxxx xxxx xxxx xxxx"
+                      }
+                      type="password"
+                      autoComplete="off"
+                    />
+                  </label>
+                  <p className="muted">
+                    <strong>Live / remote sites:</strong> WordPress will not accept your normal login
+                    password over the API. In wp-admin go to{" "}
+                    <em>Users → Profile → Application Passwords</em>, create one named “Studio”, and
+                    paste that password here (not your login password). Then update/re-upload the{" "}
+                    <code>wp-grape-export</code> plugin on that site.
+                    <br />
+                    <strong>Localhost only:</strong> normal wp-admin username + password works.
+                    <br />
+                    Alternative: export a zip from <em>Tools → Grape Export</em> and use “Upload zip”.
+                  </p>
+                  <label className="checkbox-row">
+                    <input type="checkbox" checked={copyMedia} onChange={(e) => setCopyMedia(e.target.checked)} />
+                    Include media files (larger, self-contained preview)
+                  </label>
+                </>
+              )}
+            </div>
+          )}
+
+          {error && <div className="alert alert-error">{error}</div>}
+
+          <div className="modal-actions">
+            <button type="button" className="btn btn-ghost" onClick={onClose}>Cancel</button>
+            <button type="submit" className="btn btn-primary" disabled={busy}>
+              {busy ? "Creating…" : "Create project"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}

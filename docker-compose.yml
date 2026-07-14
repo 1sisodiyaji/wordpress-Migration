@@ -1,0 +1,69 @@
+services:
+  db:
+    image: mariadb:10.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+      MYSQL_DATABASE: smartco
+    volumes:
+      - smartco_db_data:/var/lib/mysql
+      - ./try-data/smartco.sql:/docker-entrypoint-initdb.d/smartco.sql:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  wordpress:
+    build: ./docker/wordpress
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8082:80"
+    volumes:
+      - ./try-data/smartco-20260705T182508Z-3-001/smartco:/var/www/html
+      - ./wp-plugin/wp-grape-export:/var/www/html/wp-content/plugins/wp-grape-export
+
+  phpmyadmin:
+    image: phpmyadmin:latest
+    restart: unless-stopped
+    depends_on:
+      - db
+    environment:
+      PMA_HOST: db
+    ports:
+      - "8081:80"
+
+  # Orbit Commercial Bank (port 8083)
+  orbit_db:
+    image: mariadb:10.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+      MYSQL_DATABASE: orbit_central_bank
+    volumes:
+      - orbit_db_data:/var/lib/mysql
+      - ./try-data/orbit_central_bank.sql:/docker-entrypoint-initdb.d/orbit_central_bank.sql:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  orbit_wordpress:
+    build: ./docker/wordpress
+    restart: unless-stopped
+    depends_on:
+      orbit_db:
+        condition: service_healthy
+    ports:
+      - "8083:80"
+    volumes:
+      - ./try-data/orbit-commercial-bank/Orbit-Commercial-Bank:/var/www/html
+      - ./wp-plugin/wp-grape-export:/var/www/html/wp-content/plugins/wp-grape-export
+
+volumes:
+  smartco_db_data:
+  orbit_db_data:

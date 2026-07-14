@@ -1,0 +1,266 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://wp-grape-export/schema/v2/manifest.schema.json",
+  "title": "WP Grape Export Manifest v2",
+  "description": "Top-level manifest emitted by the wp-grape-export WordPress plugin and consumed by the migration converter.",
+  "type": "object",
+  "required": ["version", "generator", "exportedAt", "site", "counts"],
+  "properties": {
+    "version": { "const": 2 },
+    "generator": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" },
+        "wpVersion": { "type": "string" },
+        "phpVersion": { "type": "string" }
+      }
+    },
+    "exportedAt": { "type": "string", "format": "date-time" },
+    "site": { "$ref": "#/definitions/site" },
+    "counts": {
+      "type": "object",
+      "properties": {
+        "routes": { "type": "integer" },
+        "pages": { "type": "integer" },
+        "templates": { "type": "integer" },
+        "menus": { "type": "integer" },
+        "media": { "type": "integer" },
+        "unresolvedShortcodes": { "type": "integer" }
+      }
+    },
+    "files": {
+      "type": "object",
+      "description": "Relative paths within the export bundle for each section file.",
+      "properties": {
+        "site": { "type": "string" },
+        "layout": { "type": "string" },
+        "routes": { "type": "string" },
+        "assets": { "type": "string" },
+        "media": { "type": "string" },
+        "audit": { "type": "string" }
+      }
+    }
+  },
+  "definitions": {
+    "site": {
+      "type": "object",
+      "required": ["name", "url", "home", "pageBuilder"],
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "url": { "type": "string" },
+        "home": { "type": "string" },
+        "language": { "type": "string" },
+        "timezone": { "type": "string" },
+        "charset": { "type": "string" },
+        "pageBuilder": {
+          "type": "string",
+          "enum": ["elementor", "gutenberg", "classic", "divi", "wpbakery", "beaver", "brizy", "oxygen", "unknown"]
+        },
+        "theme": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" },
+            "stylesheet": { "type": "string" },
+            "template": { "type": "string" },
+            "version": { "type": "string" },
+            "hasThemeJson": { "type": "boolean" }
+          }
+        },
+        "activePlugins": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "builderPlugins": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Layout-affecting plugins detected (elementor, elementor-pro, elementskit-lite, etc.)"
+        }
+      }
+    },
+    "route": {
+      "type": "object",
+      "required": ["id", "path", "type", "title"],
+      "properties": {
+        "id": { "type": "integer" },
+        "path": { "type": "string" },
+        "slug": { "type": "string" },
+        "type": { "type": "string", "enum": ["home", "page", "post", "cpt"] },
+        "postType": { "type": "string" },
+        "title": { "type": "string" },
+        "status": { "type": "string" },
+        "pageBuilder": { "type": "string" },
+        "template": { "type": "string" },
+        "parentId": { "type": ["integer", "null"] },
+        "menuOrder": { "type": "integer" },
+        "isFront": { "type": "boolean" },
+        "dir": { "type": "string", "description": "Relative dir under pages/ holding this route's files." }
+      }
+    },
+    "layout": {
+      "type": "object",
+      "properties": {
+        "header": { "$ref": "#/definitions/layoutRegion" },
+        "footer": { "$ref": "#/definitions/layoutRegion" },
+        "menus": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/menu" }
+        }
+      }
+    },
+    "layoutRegion": {
+      "type": ["object", "null"],
+      "properties": {
+        "source": { "type": "string", "description": "elementor_theme_builder | elementskit_template | theme | none" },
+        "postId": { "type": ["integer", "null"] },
+        "title": { "type": "string" },
+        "htmlFile": { "type": "string", "description": "Relative path to rendered HTML for this region." },
+        "dataFile": { "type": ["string", "null"], "description": "Relative path to raw builder JSON, if any." },
+        "assignedTo": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Display conditions, e.g. [\"all\"], [\"front_page\"], [\"post_type:page\"]"
+        }
+      }
+    },
+    "menu": {
+      "type": "object",
+      "required": ["id", "slug", "items"],
+      "properties": {
+        "id": { "type": "integer" },
+        "slug": { "type": "string" },
+        "name": { "type": "string" },
+        "location": { "type": ["string", "null"] },
+        "items": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/menuItem" }
+        }
+      }
+    },
+    "menuItem": {
+      "type": "object",
+      "required": ["id", "title", "url"],
+      "properties": {
+        "id": { "type": "integer" },
+        "title": { "type": "string" },
+        "url": { "type": "string" },
+        "parentId": { "type": "integer" },
+        "order": { "type": "integer" },
+        "target": { "type": "string" },
+        "classes": { "type": "array", "items": { "type": "string" } },
+        "objectType": { "type": "string" },
+        "objectId": { "type": ["integer", "null"] }
+      }
+    },
+    "pageMeta": {
+      "type": "object",
+      "required": ["postId", "path", "title"],
+      "properties": {
+        "postId": { "type": "integer" },
+        "path": { "type": "string" },
+        "slug": { "type": "string" },
+        "title": { "type": "string" },
+        "type": { "type": "string" },
+        "pageBuilder": { "type": "string" },
+        "template": { "type": "string" },
+        "renderedFile": { "type": "string", "description": "Relative path to content-slot HTML." },
+        "rawFile": { "type": ["string", "null"], "description": "Relative path to raw builder data / block markup." },
+        "assetsFile": { "type": ["string", "null"], "description": "Relative path to page-specific asset list." },
+        "slots": {
+          "type": "object",
+          "properties": {
+            "headerTemplateId": { "type": ["integer", "null"] },
+            "footerTemplateId": { "type": ["integer", "null"] }
+          }
+        },
+        "shortcodes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "tag": { "type": "string" },
+              "attrs": { "type": "object" },
+              "resolved": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    },
+    "template": {
+      "type": "object",
+      "required": ["id", "type"],
+      "properties": {
+        "id": { "type": "integer" },
+        "slug": { "type": "string" },
+        "title": { "type": "string" },
+        "type": { "type": "string", "description": "header | footer | section | popup | single | archive | page | widget" },
+        "source": { "type": "string" },
+        "htmlFile": { "type": "string" },
+        "dataFile": { "type": ["string", "null"] },
+        "conditions": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "assetManifest": {
+      "type": "object",
+      "properties": {
+        "stylesheets": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/assetRef" }
+        },
+        "scripts": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/assetRef" }
+        }
+      }
+    },
+    "assetRef": {
+      "type": "object",
+      "properties": {
+        "handle": { "type": "string" },
+        "src": { "type": ["string", "null"] },
+        "deps": { "type": "array", "items": { "type": "string" } },
+        "ver": { "type": ["string", "null"] },
+        "inlineBefore": { "type": ["string", "null"] },
+        "inlineAfter": { "type": ["string", "null"] },
+        "media": { "type": "string" },
+        "position": { "type": "string", "enum": ["head", "footer"] },
+        "bundlePath": { "type": "string", "description": "Path inside the export bundle when the file was copied." },
+        "bundleInline": { "type": "string", "description": "Path inside the bundle for inlined CSS/JS." }
+      }
+    },
+    "mediaItem": {
+      "type": "object",
+      "required": ["id", "url"],
+      "properties": {
+        "id": { "type": "integer" },
+        "url": { "type": "string" },
+        "path": { "type": "string", "description": "Path relative to wp-content." },
+        "alt": { "type": "string" },
+        "mime": { "type": "string" },
+        "sizes": { "type": "object" }
+      }
+    },
+    "audit": {
+      "type": "object",
+      "properties": {
+        "unresolvedShortcodes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "tag": { "type": "string" },
+              "postId": { "type": "integer" },
+              "path": { "type": "string" }
+            }
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  }
+}

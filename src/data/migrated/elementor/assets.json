@@ -1,0 +1,305 @@
+{
+  "fetchedAt": "2026-07-07T13:28:55.408Z",
+  "sourceUrl": "http://localhost:8082",
+  "stylesheets": [
+    "http://localhost:8082/wp-content/plugins/elementor/assets/lib/eicons/css/elementor-icons.min.css",
+    "http://localhost:8082/wp-content/plugins/elementor/assets/css/frontend.min.css",
+    "http://localhost:8082/wp-content/plugins/elementor/assets/lib/swiper/v8/css/swiper.min.css",
+    "http://localhost:8082/wp-content/plugins/elementor/assets/css/conditionals/e-swiper.min.css",
+    "http://localhost:8082/wp-content/uploads/elementor/css/custom-frontend.min.css",
+    "http://localhost:8082/wp-content/uploads/elementor/css/custom-widget-icon-box.min.css",
+    "http://localhost:8082/wp-content/uploads/elementor/css/custom-widget-icon-list.min.css",
+    "http://localhost:8082/wp-content/uploads/elementor/css/custom-pro-widget-nav-menu.min.css",
+    "http://localhost:8082/wp-content/uploads/elementor/css/custom-apple-webkit.min.css",
+    "http://localhost:8082/wp-content/uploads/elementor/css/base-desktop.css",
+    "http://localhost:8082/wp-content/plugins/elementor-pro/assets/css/conditionals/popup.min.css",
+    "http://localhost:8082/wp-content/plugins/elementor/assets/css/frontend.min.css?ver=3.29.2",
+    "http://localhost:8082/wp-content/uploads/elementor/css/post-66.css?ver=1750671233",
+    "http://localhost:8082/wp-content/uploads/elementor/css/post-67.css?ver=1750671965",
+    "http://localhost:8082/wp-content/themes/astra/assets/css/minified/main.min.css?ver=4.11.3",
+    "http://localhost:8082/wp-content/uploads/elementor/css/post-9.css?ver=1750667675",
+    "http://localhost:8082/wp-content/plugins/elementor/assets/lib/animations/styles/fadeInUp.min.css?ver=3.29.2",
+    "http://localhost:8082/wp-content/plugins/elementor/assets/css/widget-heading.min.css?ver=3.29.2",
+    "http://localhost:8082/wp-content/plugins/elementor/assets/css/widget-divider.min.css?ver=3.29.2",
+    "http://localhost:8082/wp-content/plugins/elementor/assets/css/widget-icon-list.min.css?ver=3.29.2",
+    "http://localhost:8082/wp-content/plugins/elementor/assets/lib/animations/styles/fadeIn.min.css?ver=3.29.2",
+    "http://localhost:8082/wp-content/plugins/elementor/assets/css/widget-image.min.css?ver=3.29.2",
+    "http://localhost:8082/wp-content/plugins/elementor/assets/css/widget-icon-box.min.css?ver=3.29.2",
+    "http://localhost:8082/wp-content/plugins/elementor-pro/assets/css/widget-form.min.css?ver=3.28.3",
+    "http://localhost:8082/wp-content/plugins/elementor/assets/lib/animations/styles/e-animation-pulse-grow.min.css?ver=3.29.2",
+    "http://localhost:8082/wp-content/uploads/elementor/css/post-6.css?ver=1750681609",
+    "http://localhost:8082/wp-content/plugins/elementskit-lite/widgets/init/assets/css/widget-styles.css?ver=3.5.3",
+    "http://localhost:8082/wp-content/plugins/elementskit-lite/widgets/init/assets/css/responsive.css?ver=3.5.3",
+    "http://localhost/smartco/wp-content/uploads/elementor/google-fonts/css/roboto.css?ver=1750662266",
+    "http://localhost/smartco/wp-content/uploads/elementor/google-fonts/css/manrope.css?ver=1750666194",
+    "http://localhost:8082/wp-content/plugins/elementskit-lite/modules/elementskit-icon-pack/assets/css/ekiticons.css?ver=3.5.3",
+    "http://localhost:8082/wp-content/plugins/elementor-pro/assets/css/widget-nav-menu.min.css?ver=3.28.3",
+    "http://localhost:8082/wp-content/plugins/elementor/assets/css/widget-social-icons.min.css?ver=3.29.2",
+    "http://localhost:8082/wp-content/plugins/elementor/assets/css/conditionals/apple-webkit.min.css?ver=3.29.2",
+    "http://localhost:8082/wp-content/uploads/elementor/css/post-66.css",
+    "http://localhost:8082/wp-content/uploads/elementor/css/post-6.css",
+    "http://localhost:8082/wp-content/uploads/elementor/css/post-67.css"
+  ],
+  "scripts": [
+    {
+      "src": "http://localhost:8082/wp-includes/js/jquery/jquery.min.js",
+      "handle": "jquery.min.js"
+    },
+    {
+      "src": "http://localhost:8082/wp-includes/js/jquery/jquery-migrate.min.js",
+      "handle": "jquery-migrate.min.js"
+    },
+    {
+      "src": "http://localhost:8082/wp-content/plugins/elementor/assets/lib/swiper/v8/swiper.min.js",
+      "handle": "swiper.min.js"
+    },
+    {
+      "src": "http://localhost:8082/wp-content/plugins/elementor/assets/js/webpack.runtime.min.js",
+      "handle": "webpack.runtime.min.js"
+    },
+    {
+      "src": "http://localhost:8082/wp-content/plugins/elementor/assets/js/frontend-modules.min.js",
+      "handle": "frontend-modules.min.js"
+    },
+    {
+      "src": "http://localhost:8082/wp-content/plugins/elementor/assets/js/frontend.min.js",
+      "handle": "frontend.min.js"
+    },
+    {
+      "src": "http://localhost:8082/wp-content/plugins/elementor-pro/assets/js/webpack-pro.runtime.min.js",
+      "handle": "webpack-pro.runtime.min.js"
+    },
+    {
+      "src": "http://localhost:8082/wp-content/plugins/elementor-pro/assets/js/frontend.min.js",
+      "handle": "frontend.min.js"
+    },
+    {
+      "src": "http://localhost:8082/wp-content/plugins/elementor-pro/assets/js/elements-handlers.min.js",
+      "handle": "elements-handlers.min.js"
+    },
+    {
+      "src": "http://localhost:8082/wp-content/plugins/elementor-pro/assets/lib/sticky/jquery.sticky.min.js",
+      "handle": "jquery.sticky.min.js"
+    },
+    {
+      "src": "http://localhost:8082/wp-includes/js/jquery/jquery.min.js?ver=3.7.1",
+      "id": "jquery-core-js",
+      "handle": "jquery-core-js"
+    },
+    {
+      "src": "http://localhost:8082/wp-includes/js/jquery/jquery-migrate.min.js?ver=3.4.1",
+      "id": "jquery-migrate-js",
+      "handle": "jquery-migrate-js"
+    },
+    {
+      "src": "http://localhost:8082/wp-content/themes/astra/assets/js/minified/frontend.min.js?ver=4.11.3",
+      "id": "astra-theme-js-js",
+      "handle": "astra-theme-js-js"
+    },
+    {
+      "src": "http://localhost:8082/wp-content/plugins/elementskit-lite/libs/framework/assets/js/frontend-script.js?ver=3.5.3",
+      "id": "elementskit-framework-js-frontend-js",
+      "handle": "elementskit-framework-js-frontend-js"
+    },
+    {
+      "src": "http://localhost:8082/wp-content/plugins/elementskit-lite/widgets/init/assets/js/widget-scripts.js?ver=3.5.3",
+      "id": "ekit-widget-scripts-js",
+      "handle": "ekit-widget-scripts-js"
+    },
+    {
+      "src": "http://localhost:8082/wp-content/plugins/elementor/assets/js/webpack.runtime.min.js?ver=3.29.2",
+      "id": "elementor-webpack-runtime-js",
+      "handle": "elementor-webpack-runtime-js"
+    },
+    {
+      "src": "http://localhost:8082/wp-content/plugins/elementor/assets/js/frontend-modules.min.js?ver=3.29.2",
+      "id": "elementor-frontend-modules-js",
+      "handle": "elementor-frontend-modules-js"
+    },
+    {
+      "src": "http://localhost:8082/wp-includes/js/jquery/ui/core.min.js?ver=1.13.3",
+      "id": "jquery-ui-core-js",
+      "handle": "jquery-ui-core-js"
+    },
+    {
+      "src": "http://localhost:8082/wp-content/plugins/elementor/assets/js/frontend.min.js?ver=3.29.2",
+      "id": "elementor-frontend-js",
+      "handle": "elementor-frontend-js"
+    },
+    {
+      "src": "http://localhost:8082/wp-content/plugins/elementor-pro/assets/lib/smartmenus/jquery.smartmenus.min.js?ver=1.2.1",
+      "id": "smartmenus-js",
+      "handle": "smartmenus-js"
+    },
+    {
+      "src": "http://localhost:8082/wp-content/plugins/elementor-pro/assets/js/webpack-pro.runtime.min.js?ver=3.28.3",
+      "id": "elementor-pro-webpack-runtime-js",
+      "handle": "elementor-pro-webpack-runtime-js"
+    },
+    {
+      "src": "http://localhost:8082/wp-includes/js/dist/hooks.min.js?ver=4d63a3d491d11ffd8ac6",
+      "id": "wp-hooks-js",
+      "handle": "wp-hooks-js"
+    },
+    {
+      "src": "http://localhost:8082/wp-includes/js/dist/i18n.min.js?ver=5e580eb46a90c2b997e6",
+      "id": "wp-i18n-js",
+      "handle": "wp-i18n-js"
+    },
+    {
+      "src": "http://localhost:8082/wp-content/plugins/elementor-pro/assets/js/frontend.min.js?ver=3.28.3",
+      "id": "elementor-pro-frontend-js",
+      "handle": "elementor-pro-frontend-js"
+    },
+    {
+      "src": "http://localhost:8082/wp-content/plugins/elementor-pro/assets/js/elements-handlers.min.js?ver=3.28.3",
+      "id": "pro-elements-handlers-js",
+      "handle": "pro-elements-handlers-js"
+    },
+    {
+      "src": "http://localhost:8082/wp-content/plugins/elementskit-lite/widgets/init/assets/js/animate-circle.min.js?ver=3.5.3",
+      "id": "animate-circle-js",
+      "handle": "animate-circle-js"
+    },
+    {
+      "src": "http://localhost:8082/wp-content/plugins/elementskit-lite/widgets/init/assets/js/elementor.js?ver=3.5.3",
+      "id": "elementskit-elementor-js",
+      "handle": "elementskit-elementor-js"
+    },
+    {
+      "src": "http://localhost:8082/wp-includes/js/jquery/jquery.min.js?ver=3.7.1",
+      "id": "jquery-core-js"
+    },
+    {
+      "src": "http://localhost:8082/wp-includes/js/jquery/jquery-migrate.min.js?ver=3.4.1",
+      "id": "jquery-migrate-js"
+    },
+    {
+      "src": "http://localhost:8082/wp-content/themes/astra/assets/js/minified/frontend.min.js?ver=4.11.3",
+      "id": "astra-theme-js-js"
+    },
+    {
+      "src": "http://localhost:8082/wp-content/plugins/elementskit-lite/libs/framework/assets/js/frontend-script.js?ver=3.5.3",
+      "id": "elementskit-framework-js-frontend-js"
+    },
+    {
+      "src": "http://localhost:8082/wp-content/plugins/elementskit-lite/widgets/init/assets/js/widget-scripts.js?ver=3.5.3",
+      "id": "ekit-widget-scripts-js"
+    },
+    {
+      "src": "http://localhost:8082/wp-content/plugins/elementor/assets/js/webpack.runtime.min.js?ver=3.29.2",
+      "id": "elementor-webpack-runtime-js"
+    },
+    {
+      "src": "http://localhost:8082/wp-content/plugins/elementor/assets/js/frontend-modules.min.js?ver=3.29.2",
+      "id": "elementor-frontend-modules-js"
+    },
+    {
+      "src": "http://localhost:8082/wp-includes/js/jquery/ui/core.min.js?ver=1.13.3",
+      "id": "jquery-ui-core-js"
+    },
+    {
+      "src": "http://localhost:8082/wp-content/plugins/elementor/assets/js/frontend.min.js?ver=3.29.2",
+      "id": "elementor-frontend-js"
+    },
+    {
+      "src": "http://localhost:8082/wp-content/plugins/elementor-pro/assets/lib/smartmenus/jquery.smartmenus.min.js?ver=1.2.1",
+      "id": "smartmenus-js"
+    },
+    {
+      "src": "http://localhost:8082/wp-content/plugins/elementor-pro/assets/js/webpack-pro.runtime.min.js?ver=3.28.3",
+      "id": "elementor-pro-webpack-runtime-js"
+    },
+    {
+      "src": "http://localhost:8082/wp-includes/js/dist/hooks.min.js?ver=4d63a3d491d11ffd8ac6",
+      "id": "wp-hooks-js"
+    },
+    {
+      "src": "http://localhost:8082/wp-includes/js/dist/i18n.min.js?ver=5e580eb46a90c2b997e6",
+      "id": "wp-i18n-js"
+    },
+    {
+      "src": "http://localhost:8082/wp-content/plugins/elementor-pro/assets/js/frontend.min.js?ver=3.28.3",
+      "id": "elementor-pro-frontend-js"
+    },
+    {
+      "src": "http://localhost:8082/wp-content/plugins/elementor-pro/assets/js/elements-handlers.min.js?ver=3.28.3",
+      "id": "pro-elements-handlers-js"
+    },
+    {
+      "src": "http://localhost:8082/wp-content/plugins/elementskit-lite/widgets/init/assets/js/animate-circle.min.js?ver=3.5.3",
+      "id": "animate-circle-js"
+    },
+    {
+      "src": "http://localhost:8082/wp-content/plugins/elementskit-lite/widgets/init/assets/js/elementor.js?ver=3.5.3",
+      "id": "elementskit-elementor-js"
+    }
+  ],
+  "inlineScripts": [
+    {
+      "content": "window._wpemojiSettings = {\"baseUrl\":\"https:\\/\\/s.w.org\\/images\\/core\\/emoji\\/15.1.0\\/72x72\\/\",\"ext\":\".png\",\"svgUrl\":\"https:\\/\\/s.w.org\\/images\\/core\\/emoji\\/15.1.0\\/svg\\/\",\"svgExt\":\".svg\",\"source\":{\"concatemoji\":\"http:\\/\\/localhost:8082\\/wp-includes\\/js\\/wp-emoji-release.min.js?ver=6.8.1\"}};\n/*! This file is auto-generated */\n!function(i,n){var o,s,e;function c(e){try{var t={supportTests:e,timestamp:(new Date).valueOf()};sessionStorage.setItem(o,JSON.stringify(t))}catch(e){}}function p(e,t,n){e.clearRect(0,0,e.canvas.width,e.canvas.height),e.fillText(t,0,0);var t=new Uint32Array(e.getImageData(0,0,e.canvas.width,e.canvas.height).data),r=(e.clearRect(0,0,e.canvas.width,e.canvas.height),e.fillText(n,0,0),new Uint32Array(e.getImageData(0,0,e.canvas.width,e.canvas.height).data));return t.every(function(e,t){return e===r[t]})}function u(e,t,n){switch(t){case\"flag\":return n(e,\"\\ud83c\\udff3\\ufe0f\\u200d\\u26a7\\ufe0f\",\"\\ud83c\\udff3\\ufe0f\\u200b\\u26a7\\ufe0f\")?!1:!n(e,\"\\ud83c\\uddfa\\ud83c\\uddf3\",\"\\ud83c\\uddfa\\u200b\\ud83c\\uddf3\")&&!n(e,\"\\ud83c\\udff4\\udb40\\udc67\\udb40\\udc62\\udb40\\udc65\\udb40\\udc6e\\udb40\\udc67\\udb40\\udc7f\",\"\\ud83c\\udff4\\u200b\\udb40\\udc67\\u200b\\udb40\\udc62\\u200b\\udb40\\udc65\\u200b\\udb40\\udc6e\\u200b\\udb40\\udc67\\u200b\\udb40\\udc7f\");case\"emoji\":return!n(e,\"\\ud83d\\udc26\\u200d\\ud83d\\udd25\",\"\\ud83d\\udc26\\u200b\\ud83d\\udd25\")}return!1}function f(e,t,n){var r=\"undefined\"!=typeof WorkerGlobalScope&&self instanceof WorkerGlobalScope?new OffscreenCanvas(300,150):i.createElement(\"canvas\"),a=r.getContext(\"2d\",{willReadFrequently:!0}),o=(a.textBaseline=\"top\",a.font=\"600 32px Arial\",{});return e.forEach(function(e){o[e]=t(a,e,n)}),o}function t(e){var t=i.createElement(\"script\");t.src=e,t.defer=!0,i.head.appendChild(t)}\"undefined\"!=typeof Promise&&(o=\"wpEmojiSettingsSupports\",s=[\"flag\",\"emoji\"],n.supports={everything:!0,everythingExceptFlag:!0},e=new Promise(function(e){i.addEventListener(\"DOMContentLoaded\",e,{once:!0})}),new Promise(function(t){var n=function(){try{var e=JSON.parse(sessionStorage.getItem(o));if(\"object\"==typeof e&&\"number\"==typeof e.timestamp&&(new Date).valueOf()<e.timestamp+604800&&\"object\"==typeof e.supportTests)return e.supportTests}catch(e){}return null}();if(!n){if(\"undefined\"!=typeof Worker&&\"undefined\"!=typeof OffscreenCanvas&&\"undefined\"!=typeof URL&&URL.createObjectURL&&\"undefined\"!=typeof Blob)try{var e=\"postMessage(\"+f.toString()+\"(\"+[JSON.stringify(s),u.toString(),p.toString()].join(\",\")+\"));\",r=new Blob([e],{type:\"text/javascript\"}),a=new Worker(URL.createObjectURL(r),{name:\"wpTestEmojiSupports\"});return void(a.onmessage=function(e){c(n=e.data),a.terminate(),t(n)})}catch(e){}c(n=f(s,u,p))}t(n)}).then(function(e){for(var t in e)n.supports[t]=e[t],n.supports.everything=n.supports.everything&&n.supports[t],\"flag\"!==t&&(n.supports.everythingExceptFlag=n.supports.everythingExceptFlag&&n.supports[t]);n.supports.everythingExceptFlag=n.supports.everythingExceptFlag&&!n.supports.flag,n.DOMReady=!1,n.readyCallback=function(){n.DOMReady=!0}}).then(function(){return e}).then(function(){var e;n.supports.everything||(n.readyCallback(),(e=n.source||{}).concatemoji?t(e.concatemoji):e.wpemoji&&e.twemoji&&(t(e.twemoji),t(e.wpemoji)))}))}((window,document),window._wpemojiSettings);"
+    },
+    {
+      "content": "{\"prefetch\":[{\"source\":\"document\",\"where\":{\"and\":[{\"href_matches\":\"\\/*\"},{\"not\":{\"href_matches\":[\"\\/wp-*.php\",\"\\/wp-admin\\/*\",\"\\/wp-content\\/uploads\\/*\",\"\\/wp-content\\/*\",\"\\/wp-content\\/plugins\\/*\",\"\\/wp-content\\/themes\\/astra\\/*\",\"\\/*\\\\?(.+)\"]}},{\"not\":{\"selector_matches\":\"a[rel~=\\\"nofollow\\\"]\"}},{\"not\":{\"selector_matches\":\".no-prefetch, .no-prefetch a\"}}]},\"eagerness\":\"conservative\"}]}",
+      "type": "speculationrules"
+    },
+    {
+      "content": "const lazyloadRunObserver = () => {\n\t\t\t\t\tconst lazyloadBackgrounds = document.querySelectorAll( `.e-con.e-parent:not(.e-lazyloaded)` );\n\t\t\t\t\tconst lazyloadBackgroundObserver = new IntersectionObserver( ( entries ) => {\n\t\t\t\t\t\tentries.forEach( ( entry ) => {\n\t\t\t\t\t\t\tif ( entry.isIntersecting ) {\n\t\t\t\t\t\t\t\tlet lazyloadBackground = entry.target;\n\t\t\t\t\t\t\t\tif( lazyloadBackground ) {\n\t\t\t\t\t\t\t\t\tlazyloadBackground.classList.add( 'e-lazyloaded' );\n\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t\tlazyloadBackgroundObserver.unobserve( entry.target );\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t});\n\t\t\t\t\t}, { rootMargin: '200px 0px 200px 0px' } );\n\t\t\t\t\tlazyloadBackgrounds.forEach( ( lazyloadBackground ) => {\n\t\t\t\t\t\tlazyloadBackgroundObserver.observe( lazyloadBackground );\n\t\t\t\t\t} );\n\t\t\t\t};\n\t\t\t\tconst events = [\n\t\t\t\t\t'DOMContentLoaded',\n\t\t\t\t\t'elementor/lazyload/observe',\n\t\t\t\t];\n\t\t\t\tevents.forEach( ( event ) => {\n\t\t\t\t\tdocument.addEventListener( event, lazyloadRunObserver );\n\t\t\t\t} );"
+    },
+    {
+      "id": "astra-theme-js-js-extra",
+      "content": "var astra = {\"break_point\":\"921\",\"isRtl\":\"\",\"is_scroll_to_id\":\"1\",\"is_scroll_to_top\":\"1\",\"is_header_footer_builder_active\":\"1\",\"responsive_cart_click\":\"flyout\",\"is_dark_palette\":\"\"};"
+    },
+    {
+      "id": "elementskit-framework-js-frontend-js-after",
+      "content": "var elementskit = {\n\t\t\tresturl: 'http://localhost:8082/wp-json/elementskit/v1/',\n\t\t}"
+    },
+    {
+      "id": "elementor-frontend-js-before",
+      "content": "var elementorFrontendConfig = {\"environmentMode\":{\"edit\":false,\"wpPreview\":false,\"isScriptDebug\":false},\"i18n\":{\"shareOnFacebook\":\"Share on Facebook\",\"shareOnTwitter\":\"Share on Twitter\",\"pinIt\":\"Pin it\",\"download\":\"Download\",\"downloadImage\":\"Download image\",\"fullscreen\":\"Fullscreen\",\"zoom\":\"Zoom\",\"share\":\"Share\",\"playVideo\":\"Play Video\",\"previous\":\"Previous\",\"next\":\"Next\",\"close\":\"Close\",\"a11yCarouselPrevSlideMessage\":\"Previous slide\",\"a11yCarouselNextSlideMessage\":\"Next slide\",\"a11yCarouselFirstSlideMessage\":\"This is the first slide\",\"a11yCarouselLastSlideMessage\":\"This is the last slide\",\"a11yCarouselPaginationBulletMessage\":\"Go to slide\"},\"is_rtl\":false,\"breakpoints\":{\"xs\":0,\"sm\":480,\"md\":768,\"lg\":1025,\"xl\":1440,\"xxl\":1600},\"responsive\":{\"breakpoints\":{\"mobile\":{\"label\":\"Mobile Portrait\",\"value\":767,\"default_value\":767,\"direction\":\"max\",\"is_enabled\":true},\"mobile_extra\":{\"label\":\"Mobile Landscape\",\"value\":880,\"default_value\":880,\"direction\":\"max\",\"is_enabled\":false},\"tablet\":{\"label\":\"Tablet Portrait\",\"value\":1024,\"default_value\":1024,\"direction\":\"max\",\"is_enabled\":true},\"tablet_extra\":{\"label\":\"Tablet Landscape\",\"value\":1200,\"default_value\":1200,\"direction\":\"max\",\"is_enabled\":false},\"laptop\":{\"label\":\"Laptop\",\"value\":1366,\"default_value\":1366,\"direction\":\"max\",\"is_enabled\":false},\"widescreen\":{\"label\":\"Widescreen\",\"value\":2400,\"default_value\":2400,\"direction\":\"min\",\"is_enabled\":false}},\"hasCustomBreakpoints\":false},\"version\":\"3.29.2\",\"is_static\":false,\"experimentalFeatures\":{\"e_font_icon_svg\":true,\"additional_custom_breakpoints\":true,\"container\":true,\"e_local_google_fonts\":true,\"theme_builder_v2\":true,\"nested-elements\":true,\"editor_v2\":true,\"e_element_cache\":true,\"home_screen\":true,\"launchpad-checklist\":true,\"cloud-library\":true,\"e_opt_in_v4_page\":true},\"urls\":{\"assets\":\"http:\\/\\/localhost:8082\\/wp-content\\/plugins\\/elementor\\/assets\\/\",\"ajaxurl\":\"http:\\/\\/localhost:8082\\/wp-admin\\/admin-ajax.php\",\"uploadUrl\":\"http:\\/\\/localhost:8082\\/wp-content\\/uploads\"},\"nonces\":{\"floatingButtonsClickTracking\":\"4d015a1f9e\"},\"swiperClass\":\"swiper\",\"settings\":{\"page\":[],\"editorPreferences\":[]},\"kit\":{\"active_breakpoints\":[\"viewport_mobile\",\"viewport_tablet\"],\"global_image_lightbox\":\"yes\",\"lightbox_enable_counter\":\"yes\",\"lightbox_enable_fullscreen\":\"yes\",\"lightbox_enable_zoom\":\"yes\",\"lightbox_enable_share\":\"yes\",\"lightbox_title_src\":\"title\",\"lightbox_description_src\":\"description\"},\"post\":{\"id\":6,\"title\":\"Smart%20Connect%20Utilities%20%E2%80%93%20Lighting%20Lives%20with%20Reliable%20Power%20Distribution\",\"excerpt\":\"\",\"featuredImage\":false}};"
+    },
+    {
+      "id": "wp-i18n-js-after",
+      "content": "wp.i18n.setLocaleData( { 'text direction\\u0004ltr': [ 'ltr' ] } );"
+    },
+    {
+      "id": "elementor-pro-frontend-js-before",
+      "content": "var ElementorProFrontendConfig = {\"ajaxurl\":\"http:\\/\\/localhost:8082\\/wp-admin\\/admin-ajax.php\",\"nonce\":\"5a9a59882f\",\"urls\":{\"assets\":\"http:\\/\\/localhost:8082\\/wp-content\\/plugins\\/elementor-pro\\/assets\\/\",\"rest\":\"http:\\/\\/localhost:8082\\/wp-json\\/\"},\"settings\":{\"lazy_load_background_images\":true},\"popup\":{\"hasPopUps\":false},\"shareButtonsNetworks\":{\"facebook\":{\"title\":\"Facebook\",\"has_counter\":true},\"twitter\":{\"title\":\"Twitter\"},\"linkedin\":{\"title\":\"LinkedIn\",\"has_counter\":true},\"pinterest\":{\"title\":\"Pinterest\",\"has_counter\":true},\"reddit\":{\"title\":\"Reddit\",\"has_counter\":true},\"vk\":{\"title\":\"VK\",\"has_counter\":true},\"odnoklassniki\":{\"title\":\"OK\",\"has_counter\":true},\"tumblr\":{\"title\":\"Tumblr\"},\"digg\":{\"title\":\"Digg\"},\"skype\":{\"title\":\"Skype\"},\"stumbleupon\":{\"title\":\"StumbleUpon\",\"has_counter\":true},\"mix\":{\"title\":\"Mix\"},\"telegram\":{\"title\":\"Telegram\"},\"pocket\":{\"title\":\"Pocket\",\"has_counter\":true},\"xing\":{\"title\":\"XING\",\"has_counter\":true},\"whatsapp\":{\"title\":\"WhatsApp\"},\"email\":{\"title\":\"Email\"},\"print\":{\"title\":\"Print\"},\"x-twitter\":{\"title\":\"X\"},\"threads\":{\"title\":\"Threads\"}},\"facebook_sdk\":{\"lang\":\"en_US\",\"app_id\":\"\"},\"lottie\":{\"defaultAnimationUrl\":\"http:\\/\\/localhost:8082\\/wp-content\\/plugins\\/elementor-pro\\/modules\\/lottie\\/assets\\/animations\\/default.json\"}};"
+    },
+    {
+      "id": "elementskit-elementor-js-extra",
+      "content": "var ekit_config = {\"ajaxurl\":\"http:\\/\\/localhost:8082\\/wp-admin\\/admin-ajax.php\",\"nonce\":\"86e91d7160\"};"
+    },
+    {
+      "content": "/(trident|msie)/i.test(navigator.userAgent)&&document.getElementById&&window.addEventListener&&window.addEventListener(\"hashchange\",function(){var t,e=location.hash.substring(1);/^[A-z0-9_-]+$/.test(e)&&(t=document.getElementById(e))&&(/^(?:a|select|input|button|textarea)$/i.test(t.tagName)||(t.tabIndex=-1),t.focus())},!1);"
+    }
+  ],
+  "documentIds": [
+    66,
+    6,
+    67
+  ],
+  "kitCssPaths": [
+    "/wp-content/uploads/elementor/css/post-6.css"
+  ],
+  "widgets": [
+    "button",
+    "container",
+    "theme-post-content",
+    "heading",
+    "image",
+    "nav-menu",
+    "text-editor",
+    "divider--view-line",
+    "divider",
+    "icon-list",
+    "tablet__width-inherit",
+    "icon-box",
+    "form",
+    "icon",
+    "social-icons",
+    "ekit-nav-menu"
+  ],
+  "templateIds": [],
+  "snippetIds": []
+}
