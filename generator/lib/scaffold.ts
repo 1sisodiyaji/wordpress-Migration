@@ -180,6 +180,7 @@ export default defineConfig({
   },
   server: {
     port: ${port},
+    allowedHosts: ["monitor.craftfosslabs.com"],
     watch: {
       ignored: ["**/public/assets/**"],
     },

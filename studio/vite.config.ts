@@ -11,6 +11,7 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    allowedHosts: ["monitor.craftfosslabs.com"],
   },
   build: {
     outDir: path.join(root, "dist"),

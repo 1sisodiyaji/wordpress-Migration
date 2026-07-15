@@ -660,7 +660,11 @@ export default defineConfig({
     },
   },
   optimizeDeps: { include: ["react", "react-dom", "react/jsx-runtime", "react/jsx-dev-runtime"] },
-  server: { port: ${port}, watch: { ignored: ["**/public/assets/**"] } },
+  server: {
+    port: ${port},
+    allowedHosts: ["monitor.craftfosslabs.com"],
+    watch: { ignored: ["**/public/assets/**"] },
+  },
 });
 `,
     "utf8",
