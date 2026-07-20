@@ -17,6 +17,47 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Site_Scanner {
 
 	/**
+	 * Post types that are public in WP but must never become site routes.
+	 * They belong in templates/layout only (Theme Builder / ElementsKit / kits).
+	 *
+	 * @var string[]
+	 */
+	const EXCLUDED_ROUTE_POST_TYPES = array(
+		'attachment',
+		'elementor_library',
+		'e-floating-buttons',
+		'elementskit_template',
+		'elementskit_content',
+		'elementskit_widget',
+		'wpcf7_contact_form',
+	);
+
+	/**
+	 * Elementor `_elementor_template_type` values that are library items, not pages.
+	 *
+	 * @var string[]
+	 */
+	const EXCLUDED_ELEMENTOR_TEMPLATE_TYPES = array(
+		'kit',
+		'header',
+		'footer',
+		'section',
+		'popup',
+		'widget',
+		'loop-item',
+		'loop',
+		'admin-page',
+		'error-404',
+		'search-results',
+		'single',
+		'single-post',
+		'single-page',
+		'archive',
+		'product',
+		'product-archive',
+	);
+
+	/**
 	 * Export arguments.
 	 *
 	 * @var array
@@ -28,6 +69,30 @@ class Site_Scanner {
 	 */
 	public function __construct( array $args ) {
 		$this->args = $args;
+		if ( isset( $this->args['post_types'] ) ) {
+			$this->args['post_types'] = self::sanitize_route_post_types( (array) $this->args['post_types'] );
+		}
+	}
+
+	/**
+	 * Strip library/template CPTs from a post_types list.
+	 *
+	 * @param string[] $post_types Requested types.
+	 * @return string[]
+	 */
+	public static function sanitize_route_post_types( array $post_types ) {
+		$out = array();
+		foreach ( $post_types as $type ) {
+			$type = sanitize_key( (string) $type );
+			if ( ! $type || in_array( $type, self::EXCLUDED_ROUTE_POST_TYPES, true ) ) {
+				continue;
+			}
+			$out[] = $type;
+		}
+		if ( empty( $out ) ) {
+			$out = array( 'page', 'post' );
+		}
+		return array_values( array_unique( $out ) );
 	}
 
 	/**
@@ -66,12 +131,10 @@ class Site_Scanner {
 	 */
 	public function detect_builder() {
 		if ( defined( 'ELEMENTOR_VERSION' ) || is_plugin_active_safe( 'elementor/elementor.php' ) ) {
-			// Confirm at least one page is built with Elementor.
 			$front = $this->front_page_id();
 			if ( $front && get_post_meta( $front, '_elementor_edit_mode', true ) === 'builder' ) {
 				return 'elementor';
 			}
-			// Fall through: Elementor active but front page may be classic.
 			return 'elementor';
 		}
 
@@ -93,18 +156,22 @@ class Site_Scanner {
 	}
 
 	/**
-	 * Enumerate public routes to export.
+	 * Enumerate public routes to export (real pages/posts only — not Theme Builder templates).
 	 *
 	 * @return array[] Array of route descriptors (pre-file-path).
 	 */
 	public function routes() {
-		$routes    = array();
-		$front_id  = $this->front_page_id();
-		$seen      = array();
+		$routes   = array();
+		$front_id = $this->front_page_id();
+		$seen     = array();
 
-		$post_types = (array) $this->args['post_types'];
+		$post_types = self::sanitize_route_post_types( (array) $this->args['post_types'] );
 
 		foreach ( $post_types as $post_type ) {
+			if ( ! post_type_exists( $post_type ) ) {
+				continue;
+			}
+
 			$posts = get_posts(
 				array(
 					'post_type'        => $post_type,
@@ -120,15 +187,25 @@ class Site_Scanner {
 				if ( isset( $seen[ $post->ID ] ) ) {
 					continue;
 				}
+				if ( ! $this->is_exportable_route_post( $post ) ) {
+					continue;
+				}
 				$seen[ $post->ID ] = true;
 
 				$permalink = get_permalink( $post );
-				$path      = $this->url_to_path( $permalink );
-				$is_front  = ( (int) $post->ID === (int) $front_id );
+				$path      = $this->url_to_path( $permalink, $post );
+				if ( null === $path ) {
+					continue;
+				}
+
+				$is_front = ( (int) $post->ID === (int) $front_id );
+				if ( $is_front ) {
+					$path = '/';
+				}
 
 				$routes[] = array(
 					'id'          => (int) $post->ID,
-					'path'        => $is_front ? '/' : $path,
+					'path'        => $path,
 					'slug'        => $post->post_name,
 					'type'        => $is_front ? 'home' : ( 'page' === $post_type ? 'page' : ( 'post' === $post_type ? 'post' : 'cpt' ) ),
 					'postType'    => $post_type,
@@ -143,7 +220,8 @@ class Site_Scanner {
 			}
 		}
 
-		// Ensure the front page sorts first.
+		$routes = $this->dedupe_routes_by_path( $routes );
+
 		usort(
 			$routes,
 			static function ( $a, $b ) {
@@ -158,6 +236,73 @@ class Site_Scanner {
 		);
 
 		return $routes;
+	}
+
+	/**
+	 * Whether a post should become a navigable site route.
+	 *
+	 * @param \WP_Post $post Post.
+	 * @return bool
+	 */
+	private function is_exportable_route_post( $post ) {
+		if ( ! $post instanceof \WP_Post ) {
+			return false;
+		}
+		if ( in_array( $post->post_type, self::EXCLUDED_ROUTE_POST_TYPES, true ) ) {
+			return false;
+		}
+
+		$el_type = (string) get_post_meta( $post->ID, '_elementor_template_type', true );
+		if ( $el_type && in_array( $el_type, self::EXCLUDED_ELEMENTOR_TEMPLATE_TYPES, true ) ) {
+			return false;
+		}
+		// Elementor "wp-post" on ElementsKit templates is still a library item.
+		if ( 'wp-post' === $el_type && in_array( $post->post_type, array( 'elementskit_template', 'elementor_library' ), true ) ) {
+			return false;
+		}
+
+		$ekit = (string) (
+			get_post_meta( $post->ID, 'ekit_template_type', true )
+			?: get_post_meta( $post->ID, '_ekit_template_type', true )
+		);
+		if ( $ekit && in_array( strtolower( $ekit ), array( 'header', 'footer', 'section', 'mega-menu', 'popup' ), true ) ) {
+			return false;
+		}
+
+		return true;
+	}
+
+	/**
+	 * Keep one route per path. Prefer front page, then page, then lower menu order.
+	 *
+	 * @param array[] $routes Routes.
+	 * @return array[]
+	 */
+	private function dedupe_routes_by_path( array $routes ) {
+		$by_path = array();
+		foreach ( $routes as $route ) {
+			$path = $route['path'];
+			if ( ! isset( $by_path[ $path ] ) ) {
+				$by_path[ $path ] = $route;
+				continue;
+			}
+			$existing = $by_path[ $path ];
+			if ( ! empty( $route['isFront'] ) ) {
+				$by_path[ $path ] = $route;
+				continue;
+			}
+			if ( ! empty( $existing['isFront'] ) ) {
+				continue;
+			}
+			if ( 'page' === $route['postType'] && 'page' !== $existing['postType'] ) {
+				$by_path[ $path ] = $route;
+				continue;
+			}
+			if ( $route['menuOrder'] < $existing['menuOrder'] ) {
+				$by_path[ $path ] = $route;
+			}
+		}
+		return array_values( $by_path );
 	}
 
 	/**
@@ -187,24 +332,59 @@ class Site_Scanner {
 		if ( $front ) {
 			return $front;
 		}
-		// "Latest posts" front page has no single post ID; fall back to 0.
 		return 0;
 	}
 
 	/**
 	 * Convert an absolute permalink to a site-relative path.
+	 * Returns null when the URL is a query-string CPT permalink (not a real route).
 	 *
-	 * @param string $url Permalink.
-	 * @return string
+	 * @param string        $url  Permalink.
+	 * @param \WP_Post|null $post Optional post (for slug fallback).
+	 * @return string|null
 	 */
-	private function url_to_path( $url ) {
-		$home = home_url();
-		$path = str_replace( $home, '', $url );
-		$path = wp_parse_url( $path, PHP_URL_PATH );
-		if ( ! $path ) {
-			$path = '/';
+	private function url_to_path( $url, $post = null ) {
+		$parts = wp_parse_url( (string) $url );
+		if ( ! is_array( $parts ) ) {
+			return null;
 		}
-		return '/' . trim( $path, '/' );
+
+		// Library CPTs use ?elementor_library=… / ?elementskit_template=… — not routes.
+		if ( ! empty( $parts['query'] ) ) {
+			parse_str( $parts['query'], $query );
+			foreach ( array( 'elementor_library', 'elementskit_template', 'elementskit_content', 'p', 'page_id', 'preview' ) as $bad ) {
+				if ( isset( $query[ $bad ] ) && 'p' !== $bad && 'page_id' !== $bad ) {
+					return null;
+				}
+			}
+			// Bare ?p=123 without a pretty path is not a stable public route.
+			if ( isset( $query['p'] ) || isset( $query['page_id'] ) ) {
+				if ( empty( $parts['path'] ) || '/' === $parts['path'] ) {
+					if ( $post && ! empty( $post->post_name ) ) {
+						return '/' . $post->post_name;
+					}
+					return null;
+				}
+			}
+		}
+
+		$path = isset( $parts['path'] ) ? $parts['path'] : '/';
+
+		$home_path = wp_parse_url( home_url( '/' ), PHP_URL_PATH );
+		$home_path = is_string( $home_path ) ? untrailingslashit( $home_path ) : '';
+		if ( $home_path && '/' !== $home_path && 0 === strpos( $path, $home_path ) ) {
+			$path = substr( $path, strlen( $home_path ) );
+			if ( false === $path || '' === $path ) {
+				$path = '/';
+			}
+		}
+
+		$path = '/' . trim( (string) $path, '/' );
+		if ( '/' === $path ) {
+			return '/';
+		}
+
+		return $path;
 	}
 
 	/**

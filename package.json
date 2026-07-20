@@ -17,6 +17,8 @@
     "generate": "tsx generator/index.ts",
     "import:plugin": "tsx scraper/tools/import-plugin-export.ts",
     "import:try-data": "tsx scripts/seed-try-data.ts",
+    "wp:up": "bash scripts/start-wordpress.sh",
+    "wp:down": "docker compose down",
     "typecheck": "tsc --noEmit",
     "lint": "eslint scraper generator lib studio"
   },

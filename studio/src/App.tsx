@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   createProject,
   deleteProject,
@@ -17,16 +17,27 @@ import { NewProjectPanel, type PluginPullCreds } from "./components/NewProjectPa
 import { ProjectFlow } from "./components/ProjectFlow";
 import { ProjectList } from "./components/ProjectList";
 import type { WpUploadParts } from "./components/WpFileUploads";
+import { useTheme } from "./hooks/useTheme";
 
 type View = { kind: "home" } | { kind: "project"; slug: string };
 
+function projectStats(projects: Project[]) {
+  const total = projects.length;
+  const live = projects.filter((p) => p.meta?.editorStatus === "running" || p.editorRunning).length;
+  const ready = projects.filter((p) => p.meta?.generateStatus === "done").length;
+  return { total, live, ready };
+}
+
 export default function App() {
+  const { switchTheme, isDark } = useTheme();
   const [view, setView] = useState<View>({ kind: "home" });
   const [projects, setProjects] = useState<Project[]>([]);
   const [active, setActive] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const stats = useMemo(() => projectStats(projects), [projects]);
 
   const refresh = useCallback(async () => {
     const list = await fetchProjects();
@@ -69,7 +80,6 @@ export default function App() {
     setShowNew(false);
     await openProject(project.slug);
 
-    // Plugin export: kick off the import (upload or remote pull) after creation.
     if (body.pluginZip) {
       await uploadPluginExport(project.slug, body.pluginZip);
     } else if (body.pluginPull) {
@@ -108,61 +118,106 @@ export default function App() {
   }
 
   async function handleDelete(slug: string) {
-    await deleteProject(slug);
+    setError(null);
+    try {
+      await deleteProject(slug);
+      setView({ kind: "home" });
+      setActive(null);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  function goHome() {
     setView({ kind: "home" });
     setActive(null);
-    await refresh();
   }
 
   return (
     <div className="app">
       <header className="topbar">
-        <button type="button" className="brand" onClick={() => { setView({ kind: "home" }); setActive(null); }}>
-          <span className="brand-mark">G</span>
-          <span>
-            <strong>WP → GrapeJS</strong>
-            <small>Scrape · Convert · Edit</small>
-          </span>
-        </button>
-        {view.kind === "home" && (
-          <button type="button" className="btn btn-primary" onClick={() => setShowNew(true)}>
-            + New project
+        <div className="topbar-inner">
+          <button type="button" className="brand" onClick={goHome}>
+            <span className="brand-mark">G</span>
+            <span>
+              <strong>Migration Studio</strong>
+              <small>WordPress → GrapeJS</small>
+            </span>
           </button>
-        )}
+
+          <div className="topbar-actions">
+            <button
+              type="button"
+              className="btn btn-ghost btn-icon"
+              onClick={switchTheme}
+              title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+              aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+            >
+              {isDark ? "☀" : "☾"}
+            </button>
+            {view.kind === "home" && (
+              <button type="button" className="btn btn-primary" onClick={() => setShowNew(true)}>
+                + New project
+              </button>
+            )}
+          </div>
+        </div>
       </header>
 
       <main className="main">
-        {error && <div className="alert alert-error">{error}</div>}
+        <div className="shell">
+          {error && <div className="alert alert-error">{error}</div>}
 
-        {loading && view.kind === "home" ? (
-          <p className="muted">Loading projects…</p>
-        ) : view.kind === "home" ? (
-          <>
-            {showNew && (
-              <NewProjectPanel
-                onClose={() => setShowNew(false)}
-                onCreate={handleCreate}
-              />
-            )}
-            <ProjectList
-              projects={projects}
-              onOpen={openProject}
-              onDelete={handleDelete}
+          {loading && view.kind === "home" ? (
+            <p className="muted">Loading projects…</p>
+          ) : view.kind === "home" ? (
+            <>
+              <section className="dashboard-hero">
+                <h1>Your migration workspace</h1>
+                <p>
+                  Import WordPress sites, convert them to GrapeJS projects, and edit — all from one
+                  centered dashboard.
+                </p>
+              </section>
+
+              {projects.length > 0 && (
+                <section className="stats-row" aria-label="Project statistics">
+                  <article className="stat-card">
+                    <strong>{stats.total}</strong>
+                    <span>Total projects</span>
+                  </article>
+                  <article className="stat-card">
+                    <strong>{stats.ready}</strong>
+                    <span>Converted</span>
+                  </article>
+                  <article className="stat-card">
+                    <strong>{stats.live}</strong>
+                    <span>Editors running</span>
+                  </article>
+                </section>
+              )}
+
+              {showNew && (
+                <NewProjectPanel onClose={() => setShowNew(false)} onCreate={handleCreate} />
+              )}
+
+              <ProjectList projects={projects} onOpen={openProject} onDelete={handleDelete} />
+            </>
+          ) : active ? (
+            <ProjectFlow
+              project={active}
+              onBack={goHome}
+              onScrape={handleScrape}
+              onGenerate={handleGenerate}
+              onOpenEditor={handleOpenEditor}
+              onUpload={handleUpload}
+              onDelete={() => handleDelete(active.slug)}
             />
-          </>
-        ) : active ? (
-          <ProjectFlow
-            project={active}
-            onBack={() => { setView({ kind: "home" }); setActive(null); }}
-            onScrape={handleScrape}
-            onGenerate={handleGenerate}
-            onOpenEditor={handleOpenEditor}
-            onUpload={handleUpload}
-            onDelete={() => handleDelete(active.slug)}
-          />
-        ) : (
-          <p className="muted">Loading project…</p>
-        )}
+          ) : (
+            <p className="muted">Loading project…</p>
+          )}
+        </div>
       </main>
     </div>
   );

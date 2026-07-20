@@ -38,13 +38,15 @@ class Export_Job {
 	 * }
 	 */
 	public function __construct( array $args = array() ) {
-		$this->args = wp_parse_args(
+		$parsed = wp_parse_args(
 			$args,
 			array(
 				'post_types' => array( 'page', 'post' ),
 				'copy_media' => false,
 			)
 		);
+		$parsed['post_types'] = Site_Scanner::sanitize_route_post_types( (array) $parsed['post_types'] );
+		$this->args           = $parsed;
 	}
 
 	/**
@@ -112,6 +114,16 @@ class Export_Job {
 		}
 		$post_ids = array_values( array_unique( array_filter( $post_ids ) ) );
 
+		$widget_assets = new Widget_Assets();
+		$inventory     = $widget_assets->site_inventory( $post_ids );
+		$missing       = $widget_assets->missing_assets( $inventory );
+		if ( ! empty( $missing ) ) {
+			$this->warnings[] = sprintf(
+				'%d required asset file(s) missing on disk (see audit/coverage.json).',
+				count( $missing )
+			);
+		}
+
 		// Assets: enqueue order captured after simulating front-end renders.
 		$assets_collector = new Assets_Collector();
 		$assets           = $assets_collector->collect( $scanner->front_page_id(), $post_ids );
@@ -137,10 +149,23 @@ class Export_Job {
 		$writer->write_json( 'assets/manifest.json', $assets );
 		$writer->write_json( 'media/map.json', $media );
 		$writer->write_json(
+			'audit/coverage.json',
+			array(
+				'inventory'      => $inventory,
+				'missingAssets'  => $missing,
+				'activePlugins'  => $site['activePlugins'] ?? array(),
+				'builderPlugins' => $site['builderPlugins'] ?? array(),
+			)
+		);
+		$writer->write_json(
 			'audit/report.json',
 			array(
 				'unresolvedShortcodes' => $audit['unresolvedShortcodes'],
 				'warnings'             => array_merge( $this->warnings, $audit['warnings'] ),
+				'missingAssets'        => $missing,
+				'widgetCount'          => count( $inventory['widgets'] ),
+				'animationCount'       => count( $inventory['animations'] ),
+				'pluginPackages'       => $inventory['plugins'],
 			)
 		);
 

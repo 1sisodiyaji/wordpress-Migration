@@ -5,6 +5,7 @@ import {
   deleteSite,
   getSite,
   readRegistry,
+  siteExists,
   siteHasData,
   upsertSite,
   normalizeWordPressUrl,
@@ -18,14 +19,15 @@ import {
   runImportFromFiles,
   runScrapeFromUrl,
   startEditor,
-  stopEditor,
 } from "./jobs";
 import { getImportDir, createStudioMeta, patchStudioMeta, readStudioMeta } from "./state";
 import { getWpImportStatus } from "../../lib/wp-import/store-parts";
 import { registerUploadRoutes } from "./upload";
 import { getMigratedDataDir } from "../../lib/wp/config";
 import type { MigrationManifest, PluginExportAudit } from "../../lib/wp/types";
+import { getProjectDir } from "../../generator/lib/scaffold";
 import { runPullFromPluginRest } from "./jobs";
+import { deleteProjectCompletely } from "./cleanup";
 
 export interface ProjectAudit {
   unresolvedShortcodes: PluginExportAudit["unresolvedShortcodes"];
@@ -165,11 +167,20 @@ export function registerApi(app: Express): void {
 
   app.delete("/api/projects/:slug", (req, res) => {
     const slug = String(req.params.slug);
-    stopEditor(slug);
+    const exists =
+      siteExists(slug) ||
+      Boolean(readStudioMeta(slug)) ||
+      fs.existsSync(getProjectDir(slug));
+
+    if (!exists) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+
+    const result = deleteProjectCompletely(slug);
     deleteSite(slug);
-    const metaPath = path.join(process.cwd(), "sites", slug, "studio.json");
-    if (fs.existsSync(metaPath)) fs.unlinkSync(metaPath);
-    res.json({ ok: true });
+
+    res.json({ ok: true, deleted: result });
   });
 
   app.post("/api/projects/:slug/scrape", async (req, res) => {

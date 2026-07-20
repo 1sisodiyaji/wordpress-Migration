@@ -112,17 +112,76 @@ function pushIfExists(styles: string[], assetsRoot: string, rel: string): void {
   if (fs.existsSync(abs)) styles.push(`/assets/wp-content/${rel}`);
 }
 
+/** Core Elementor / theme CSS required for canvas fidelity (often missing from export enqueue). */
+export const CRITICAL_CANVAS_CSS: string[] = [
+  "plugins/elementor/assets/css/frontend.min.css",
+  "plugins/elementor/assets/lib/eicons/css/elementor-icons.min.css",
+  "plugins/elementor/assets/lib/swiper/v8/css/swiper.min.css",
+  "plugins/elementor/assets/css/conditionals/e-swiper.min.css",
+  "plugins/elementor/assets/css/widget-heading.min.css",
+  "plugins/elementor/assets/css/widget-image.min.css",
+  "plugins/elementor/assets/css/widget-image-carousel.min.css",
+  "plugins/elementor/assets/css/widget-icon-box.min.css",
+  "plugins/elementor/assets/css/widget-icon-list.min.css",
+  "plugins/elementor/assets/css/widget-divider.min.css",
+  "plugins/elementor/assets/css/widget-social-icons.min.css",
+  "plugins/elementor/assets/css/widget-counter.min.css",
+  "plugins/elementor/assets/lib/animations/animations.min.css",
+  "plugins/elementor-pro/assets/css/widget-form.min.css",
+  "plugins/elementor-pro/assets/css/widget-nav-menu.min.css",
+  "plugins/elementor-pro/assets/css/widget-carousel-module-base.min.css",
+  "plugins/elementskit-lite/modules/elementskit-icon-pack/assets/css/ekiticons.css",
+  "plugins/elementskit-lite/widgets/init/assets/css/widget-styles.css",
+  "plugins/elementskit-lite/widgets/init/assets/css/responsive.css",
+  "themes/astra/assets/css/minified/main.min.css",
+];
+
+/**
+ * Copy missing critical CSS into the project assets tree from fallback WP roots
+ * (export public dir, try-data WordPress trees, etc.).
+ */
+export function ensureCriticalCanvasCss(
+  projectAssetsDir: string,
+  fallbackRoots: string[] = [],
+): string[] {
+  const copied: string[] = [];
+  for (const rel of CRITICAL_CANVAS_CSS) {
+    const dest = path.join(projectAssetsDir, "wp-content", rel);
+    if (fs.existsSync(dest) && fs.statSync(dest).size > 0) continue;
+
+    for (const root of fallbackRoots) {
+      if (!root || !fs.existsSync(root)) continue;
+      const candidates = [
+        path.join(root, "wp-content", rel),
+        path.join(root, "assets", "wp-content", rel),
+        path.join(root, rel),
+      ];
+      const src = candidates.find((p) => fs.existsSync(p) && fs.statSync(p).size > 0);
+      if (!src) continue;
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.copyFileSync(src, dest);
+      copied.push(rel);
+      break;
+    }
+  }
+  return copied;
+}
+
+/** Href list for critical CSS that exist under the project assets root. */
+export function criticalCanvasStyleHrefs(assetsRoot: string): string[] {
+  const styles: string[] = [];
+  for (const rel of CRITICAL_CANVAS_CSS) pushIfExists(styles, assetsRoot, rel);
+  return styles;
+}
+
 export function collectCanvasStyles(assetsRoot: string, postId?: number): string[] {
   const styles: string[] = [];
   const wpRoot = path.join(assetsRoot, "wp-content");
   if (!fs.existsSync(wpRoot)) return styles;
 
-  const fixed = [
-    "plugins/elementor/assets/css/frontend.min.css",
-    "plugins/elementor/assets/lib/eicons/css/elementor-icons.min.css",
-    "plugins/elementor/assets/lib/font-awesome/css/all.min.css",
-    "uploads/elementor/google-fonts/css/manrope.css",
-  ];
+  for (const href of criticalCanvasStyleHrefs(assetsRoot)) styles.push(href);
+
+  const fixed = ["uploads/elementor/google-fonts/css/manrope.css", "uploads/elementor/google-fonts/css/roboto.css"];
   for (const rel of fixed) pushIfExists(styles, assetsRoot, rel);
 
   const elementorCssDir = path.join(wpRoot, "uploads/elementor/css");

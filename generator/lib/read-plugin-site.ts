@@ -166,17 +166,40 @@ function resolveRegionHtmlFromTemplates(dataDir: string, region: "header" | "foo
   return "";
 }
 
-/** Per-page canvas assets: global manifest + Elementor post CSS on disk. */
+/** Per-page canvas assets: per-page export profile + global manifest + Elementor post CSS. */
 export function pageCanvasAssets(
   site: PluginSite,
   page: PluginSitePage,
   projectAssetsRoot: string,
 ): { styles: string[]; scripts: string[] } {
   const diskStyles = collectCanvasStyles(projectAssetsRoot, page.postId);
+  const pageProfile = readPageAssetProfile(site.slug, page.key);
+
+  const profileStyles = pageProfile?.styles?.map((rel) => `/assets/wp-content/${rel}`) ?? [];
+  const profileScripts = pageProfile?.scripts?.map((rel) => `/assets/wp-content/${rel}`) ?? [];
+
   return {
-    styles: [...new Set([...diskStyles, ...site.globalStyles])],
-    scripts: [...site.globalScripts],
+    styles: [...new Set([...diskStyles, ...profileStyles, ...site.globalStyles])],
+    scripts: [...new Set([...site.globalScripts, ...profileScripts])],
   };
+}
+
+interface PageAssetProfile {
+  styles?: string[];
+  scripts?: string[];
+  widgets?: string[];
+  animations?: string[];
+  plugins?: string[];
+}
+
+function readPageAssetProfile(slug: string, pageKey: string): PageAssetProfile | null {
+  const p = path.join(getMigratedDataDir(slug), "pages", pageKey, "assets.json");
+  if (!fs.existsSync(p)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(p, "utf8")) as PageAssetProfile;
+  } catch {
+    return null;
+  }
 }
 
 function titleForRoute(routePath: string, slug?: string): string {

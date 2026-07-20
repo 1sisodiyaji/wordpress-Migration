@@ -138,5 +138,7 @@ export async function startEditor(slug: string): Promise<{ url: string; port: nu
 }
 
 export async function deleteProject(slug: string): Promise<void> {
-  await fetch(`/api/projects/${slug}`, { method: "DELETE" });
+  const res = await fetch(`/api/projects/${slug}`, { method: "DELETE" });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error ?? "Failed to delete project");
 }

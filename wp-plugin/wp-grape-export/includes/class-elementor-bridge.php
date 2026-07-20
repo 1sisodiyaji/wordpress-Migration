@@ -88,4 +88,37 @@ class Elementor_Bridge {
 	public function document_type( $post_id ) {
 		return (string) get_post_meta( $post_id, '_elementor_template_type', true );
 	}
+
+	/**
+	 * Regenerate Elementor per-post CSS on disk when missing or stale.
+	 *
+	 * @param int $post_id Post ID.
+	 * @return bool Whether a CSS file exists after the attempt.
+	 */
+	public function ensure_post_css( $post_id ) {
+		$post_id = (int) $post_id;
+		if ( ! $post_id || ! self::available() || ! self::is_built_with( $post_id ) ) {
+			return false;
+		}
+
+		$css_file = WP_CONTENT_DIR . '/uploads/elementor/css/post-' . $post_id . '.css';
+
+		try {
+			if ( class_exists( '\Elementor\Core\Files\CSS\Post' ) ) {
+				$post_css = new \Elementor\Core\Files\CSS\Post( $post_id );
+				if ( method_exists( $post_css, 'update' ) ) {
+					$post_css->update();
+				} elseif ( method_exists( $post_css, 'enqueue' ) ) {
+					$post_css->enqueue();
+				}
+			} else {
+				// Fallback: rendering with_css=true triggers CSS registration.
+				$this->render( $post_id );
+			}
+		} catch ( \Throwable $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement
+			$this->render( $post_id );
+		}
+
+		return is_readable( $css_file );
+	}
 }

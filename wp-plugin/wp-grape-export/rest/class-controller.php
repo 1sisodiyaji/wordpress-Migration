@@ -147,7 +147,7 @@ class Controller {
 		if ( empty( $post_types ) || ! is_array( $post_types ) ) {
 			$post_types = array( 'page', 'post' );
 		}
-		$post_types = array_map( 'sanitize_key', $post_types );
+		$post_types = \WpGrapeExport\Site_Scanner::sanitize_route_post_types( array_map( 'sanitize_key', $post_types ) );
 
 		try {
 			$result = Plugin::instance()->run_export(

@@ -51,6 +51,11 @@ class Assets_Copier {
 	public function copy( array $manifest, array $post_ids = array() ) {
 		$manifest = $this->copy_manifest_entries( $manifest );
 		$this->copy_elementor_css( $post_ids );
+		$this->copy_critical_builder_css();
+
+		$widget_assets = new Widget_Assets();
+		$inventory     = $widget_assets->site_inventory( $post_ids );
+		$this->copied_files += $widget_assets->copy_inventory( $this->writer, $inventory );
 
 		return array(
 			'copied'   => $this->copied_files,
@@ -164,13 +169,13 @@ class Assets_Copier {
 			}
 		}
 
-		// Shared kit / global styles (post-*.css for templates, global*.css).
+		// Shared kit / global / custom widget styles.
 		foreach ( glob( $css_dir . '/*.css' ) as $file ) {
 			$base = basename( $file );
 			if ( isset( $copied[ $base ] ) ) {
 				continue;
 			}
-			if ( preg_match( '/^(global|post-\d+)\.css$/', $base ) ) {
+			if ( preg_match( '/^(global|post-\d+|custom-|base-).*\.css$/', $base ) ) {
 				$dest = 'assets/wp-content/uploads/elementor/css/' . $base;
 				if ( $this->writer->copy( $file, $dest ) ) {
 					$this->copied_files++;
@@ -195,6 +200,72 @@ class Assets_Copier {
 				}
 				$this->writer->copy( $file, 'assets/wp-content/uploads/elementor/google-fonts/fonts/' . basename( $file ) );
 				$this->copied_files++;
+			}
+		}
+	}
+
+	/**
+	 * Always stage core Elementor / ElementsKit CSS even when enqueue missed them.
+	 */
+	private function copy_critical_builder_css() {
+		$rels = array(
+			'plugins/elementor/assets/css/frontend.min.css',
+			'plugins/elementor/assets/lib/eicons/css/elementor-icons.min.css',
+			'plugins/elementor/assets/lib/swiper/v8/css/swiper.min.css',
+			'plugins/elementor/assets/css/conditionals/e-swiper.min.css',
+			'plugins/elementor/assets/css/widget-heading.min.css',
+			'plugins/elementor/assets/css/widget-image.min.css',
+			'plugins/elementor/assets/css/widget-image-carousel.min.css',
+			'plugins/elementor/assets/css/widget-icon-box.min.css',
+			'plugins/elementor/assets/css/widget-icon-list.min.css',
+			'plugins/elementor/assets/css/widget-divider.min.css',
+			'plugins/elementor/assets/css/widget-social-icons.min.css',
+			'plugins/elementor/assets/css/widget-counter.min.css',
+			'plugins/elementor/assets/lib/animations/animations.min.css',
+			'plugins/elementor-pro/assets/css/widget-form.min.css',
+			'plugins/elementor-pro/assets/css/widget-nav-menu.min.css',
+			'plugins/elementor-pro/assets/css/widget-carousel-module-base.min.css',
+			'plugins/elementskit-lite/modules/elementskit-icon-pack/assets/css/ekiticons.css',
+			'plugins/elementskit-lite/widgets/init/assets/css/widget-styles.css',
+			'plugins/elementskit-lite/widgets/init/assets/css/responsive.css',
+			'plugins/elementor/assets/lib/swiper/v8/swiper.min.js',
+			'plugins/elementor/assets/js/webpack.runtime.min.js',
+			'plugins/elementor/assets/js/frontend-modules.min.js',
+			'plugins/elementor/assets/js/frontend.min.js',
+			'plugins/elementor-pro/assets/js/webpack-pro.runtime.min.js',
+			'plugins/elementor-pro/assets/js/frontend.min.js',
+			'plugins/elementor-pro/assets/js/elements-handlers.min.js',
+			'plugins/elementor-pro/assets/lib/smartmenus/jquery.smartmenus.min.js',
+		);
+
+		foreach ( $rels as $rel ) {
+			$source = WP_CONTENT_DIR . '/' . $rel;
+			if ( ! is_readable( $source ) ) {
+				continue;
+			}
+			$dest = 'assets/wp-content/' . $rel;
+			if ( $this->writer->copy( $source, $dest ) ) {
+				$this->copied_files++;
+			}
+		}
+
+		// Icon fonts referenced by the CSS above.
+		$font_dirs = array(
+			'plugins/elementor/assets/lib/eicons/fonts',
+			'plugins/elementskit-lite/modules/elementskit-icon-pack/assets/fonts',
+		);
+		foreach ( $font_dirs as $dir_rel ) {
+			$abs = WP_CONTENT_DIR . '/' . $dir_rel;
+			if ( ! is_dir( $abs ) ) {
+				continue;
+			}
+			foreach ( glob( $abs . '/*' ) as $file ) {
+				if ( ! is_file( $file ) ) {
+					continue;
+				}
+				if ( $this->writer->copy( $file, 'assets/wp-content/' . $dir_rel . '/' . basename( $file ) ) ) {
+					$this->copied_files++;
+				}
 			}
 		}
 	}

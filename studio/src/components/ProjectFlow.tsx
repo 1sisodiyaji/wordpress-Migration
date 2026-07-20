@@ -80,7 +80,8 @@ export function ProjectFlow({
           <p className="muted">{meta?.url ?? "WordPress file import"} · <code>{project.slug}</code></p>
         </div>
         <button type="button" className="btn btn-ghost btn-danger" onClick={() => {
-          if (confirm("Delete this project?")) onDelete();
+          const name = meta?.name ?? project.slug;
+          if (confirm(`Delete "${name}"? All site and project files will be removed permanently.`)) onDelete();
         }}>
           Delete
         </button>

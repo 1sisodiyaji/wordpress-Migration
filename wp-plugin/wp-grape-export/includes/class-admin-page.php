@@ -88,8 +88,9 @@ class Admin_Page {
 						<td>
 							<?php
 							$public_types = get_post_types( array( 'public' => true ), 'objects' );
+							$excluded     = \WpGrapeExport\Site_Scanner::EXCLUDED_ROUTE_POST_TYPES;
 							foreach ( $public_types as $type ) {
-								if ( 'attachment' === $type->name ) {
+								if ( in_array( $type->name, $excluded, true ) ) {
 									continue;
 								}
 								$checked = in_array( $type->name, array( 'page', 'post' ), true );
@@ -101,6 +102,9 @@ class Admin_Page {
 								<?php
 							}
 							?>
+							<p class="description">
+								<?php esc_html_e( 'Only real site pages/posts become routes. Elementor / ElementsKit headers, footers, kits and sections are exported under templates/layout (not as duplicate Home routes).', 'wp-grape-export' ); ?>
+							</p>
 						</td>
 					</tr>
 					<tr>
@@ -130,6 +134,7 @@ class Admin_Page {
 		check_admin_referer( self::ACTION, self::NONCE );
 
 		$post_types = isset( $_POST['post_types'] ) ? array_map( 'sanitize_key', (array) wp_unslash( $_POST['post_types'] ) ) : array( 'page', 'post' );
+		$post_types = Site_Scanner::sanitize_route_post_types( $post_types );
 		$copy_media = ! empty( $_POST['copy_media'] );
 
 		try {

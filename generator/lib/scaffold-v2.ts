@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import {
+  ensureCriticalCanvasCss,
+  criticalCanvasStyleHrefs,
   patchElementorCssUrls,
   prepareGrapeHtmlForCanvas,
   rewriteAssetUrls,
@@ -13,6 +15,7 @@ import { writeCanvasInlineScripts, readAssetManifest } from "./asset-manifest";
 import { getMigratedDataDir } from "../../lib/wp/config";
 import { pageCanvasAssets, readPluginSite, type PluginSite } from "./read-plugin-site";
 import { convertElementorDocument, type ElementorNode, type GrapeBlock } from "./elementor-to-grape";
+import { assertValidAppTsx, buildAppTsx } from "./app-shell-template";
 
 const GRAPE_BLOCKS_CSS = "/assets/inline/styles/grape-blocks.css";
 
@@ -50,6 +53,14 @@ export async function generateReactGrapeProjectV2(opts: {
   if (assetManifest) {
     writeCanvasInlineScripts(assetManifest, site.assetsSourceDir, projectAssetsDir);
   }
+
+  // Fill gaps when the WP export missed Elementor frontend / widget / theme CSS.
+  const tryDataRoots = [
+    path.join(process.cwd(), "try-data", "smartco-20260705T182508Z-3-001", "smartco"),
+    path.join(process.cwd(), "try-data", "orbit-commercial-bank", "Orbit-Commercial-Bank"),
+  ];
+  ensureCriticalCanvasCss(projectAssetsDir, [site.assetsSourceDir, ...tryDataRoots]);
+
   writeElementorPreviewStyle(projectAssetsDir);
   writeGrapeBlocksStyle(projectAssetsDir);
   patchElementorCssUrls(projectAssetsDir);
@@ -162,8 +173,9 @@ function writeData(projectDir: string, site: PluginSite, elementorKitClasses: st
     for (const s of p.canvasStyles) globalStyles.add(s);
     for (const s of p.canvasScripts) globalScripts.add(s);
   }
-  // Kit vars must load before page/footer CSS that references --e-global-color-*
-  const orderedStyles = withElementorPreviewStyle([...globalStyles]);
+  // Critical Elementor/theme CSS first, then kit vars / preview, then the rest.
+  const critical = criticalCanvasStyleHrefs(assetsRoot);
+  const orderedStyles = withElementorPreviewStyle([...critical, ...globalStyles]);
 
   fs.writeFileSync(
     path.join(projectDir, "src", "data", "site.json"),
@@ -732,139 +744,14 @@ createRoot(document.getElementById("root")!).render(<App />);
     .map((p) => `  ${JSON.stringify(p.key)}: <${pageKeyToComponent(p.key)} />,`)
     .join("\n");
 
-  fs.writeFileSync(
-    path.join(projectDir, "src", "App.tsx"),
-    `import { useEffect, useState, type ReactNode } from "react";
-import { SiteLayout } from "./components/layout/SiteLayout";
-${imports}
-import siteData from "./data/site.json";
-
-const pageElements: Record<string, ReactNode> = {
-${pageElementEntries}
-};
-
-const routes = siteData.pages.map((p) => ({
-  key: p.key,
-  title: p.title,
-  route: p.route,
-  element: pageElements[p.key] ?? null,
-}));
-
-/** In-page section anchors from the exported WordPress menu live on the home page. */
-function pageKeyForHash(hash: string): string | null {
-  if (!hash || hash === "#") return "home";
-  if (hash === "#about" || hash === "#services") return "home";
-  return null;
-}
-
-export default function App() {
-  const [activeKey, setActiveKey] = useState(${JSON.stringify(defaultPage)});
-  const [pagesOpen, setPagesOpen] = useState(false);
-  const [pageQuery, setPageQuery] = useState("");
-  const active = routes.find((r) => r.key === activeKey) ?? routes[0];
-
-  const filtered = pageQuery.trim()
-    ? routes.filter(
-        (r) =>
-          r.title.toLowerCase().includes(pageQuery.toLowerCase()) ||
-          r.key.toLowerCase().includes(pageQuery.toLowerCase()),
-      )
-    : routes;
-
-  useEffect(() => {
-    const syncFromHash = () => {
-      const key = pageKeyForHash(window.location.hash);
-      if (key) setActiveKey(key);
-    };
-    syncFromHash();
-    window.addEventListener("hashchange", syncFromHash);
-    return () => window.removeEventListener("hashchange", syncFromHash);
-  }, []);
-
-  useEffect(() => {
-    if (!pagesOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setPagesOpen(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [pagesOpen]);
-
-  function selectPage(key: string) {
-    setActiveKey(key);
-    setPagesOpen(false);
-    setPageQuery("");
-  }
-
-  return (
-    <div className="app-shell">
-      <div className="editor-bar">
-        <strong>${site.name}</strong>
-        <span className="editor-bar-page">{active?.title}</span>
-      </div>
-
-      <div className="app-main">
-        {active?.element ? <SiteLayout key={active.key}>{active.element}</SiteLayout> : null}
-      </div>
-
-      <button
-        type="button"
-        className={\\\`pages-fab\\\${pagesOpen ? " is-open" : ""}\\\`}
-        aria-expanded={pagesOpen}
-        aria-controls="pages-sidebar"
-        onClick={() => setPagesOpen((v) => !v)}
-        title="Pages"
-      >
-        <span className="pages-fab-label">Pages</span>
-        <span className="pages-fab-count">{routes.length}</span>
-      </button>
-
-      <div
-        className={\\\`pages-overlay\\\${pagesOpen ? " is-open" : ""}\\\`}
-        onClick={() => setPagesOpen(false)}
-        aria-hidden={!pagesOpen}
-      />
-
-      <aside
-        id="pages-sidebar"
-        className={\\\`pages-sidebar\\\${pagesOpen ? " is-open" : ""}\\\`}
-        aria-hidden={!pagesOpen}
-      >
-        <div className="pages-sidebar-head">
-          <h2>Pages</h2>
-          <button type="button" className="pages-close" onClick={() => setPagesOpen(false)} aria-label="Close">
-            ×
-          </button>
-        </div>
-        <div className="pages-search">
-          <input
-            type="search"
-            value={pageQuery}
-            onChange={(e) => setPageQuery(e.target.value)}
-            placeholder="Search pages…"
-          />
-        </div>
-        <nav className="pages-nav">
-          {filtered.map((r) => (
-            <button
-              key={r.key}
-              type="button"
-              className={r.key === activeKey ? "active" : ""}
-              onClick={() => selectPage(r.key)}
-            >
-              {r.title}
-            </button>
-          ))}
-          {filtered.length === 0 && <p className="pages-empty">No pages match</p>}
-        </nav>
-      </aside>
-    </div>
-  );
-}
-}
-`,
-    "utf8",
-  );
+  const appTsx = buildAppTsx({
+    siteName: site.name,
+    imports,
+    pageElementEntries,
+    defaultPageKey: defaultPage,
+  });
+  assertValidAppTsx(appTsx);
+  fs.writeFileSync(path.join(projectDir, "src", "App.tsx"), appTsx, "utf8");
 
   fs.writeFileSync(
     path.join(projectDir, "src", "App.css"),

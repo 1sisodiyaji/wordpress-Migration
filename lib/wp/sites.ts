@@ -101,11 +101,21 @@ function removeDir(dir: string): void {
 
 /** Removes registry entry, site data, logs, and public assets. */
 export function deleteSite(slug: string): boolean {
-  if (!getSite(slug)) return false;
+  const hadRegistry = Boolean(getSite(slug));
+  const hadSiteDir = fs.existsSync(path.join(SITES_ROOT, slug));
+  const hadPublic = fs.existsSync(getSitePublicDir(slug));
 
   removeDir(path.join(SITES_ROOT, slug));
   removeDir(getSitePublicDir(slug));
 
-  writeRegistry(readRegistry().filter((s) => s.slug !== slug));
-  return true;
+  if (hadRegistry) {
+    writeRegistry(readRegistry().filter((s) => s.slug !== slug));
+  }
+
+  return hadRegistry || hadSiteDir || hadPublic;
+}
+
+/** Whether a site folder or registry entry exists for slug. */
+export function siteExists(slug: string): boolean {
+  return Boolean(getSite(slug)) || fs.existsSync(path.join(SITES_ROOT, slug));
 }

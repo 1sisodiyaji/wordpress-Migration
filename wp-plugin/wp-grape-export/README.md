@@ -18,6 +18,60 @@ An external scraper cannot reliably resolve `[shortcodes]`, Elementor widget tre
 
 Then activate **WP Grape Export** in `wp-admin → Plugins`.
 
+## Design goal: one-time frozen snapshot
+
+After export, **you should never need WordPress again**. The ZIP must be a self-contained
+archive of everything the live site needs for design fidelity:
+
+| Layer | What we capture |
+|-------|-----------------|
+| **HTML** | Fully rendered pages, header/footer templates, menus |
+| **Data** | Elementor `_elementor_data` trees (for editor/block conversion later) |
+| **CSS** | Theme, Elementor kit, per-post `post-{id}.css`, widget-conditional CSS |
+| **JS** | Elementor runtime, Swiper/carousels, ElementsKit, AOS/GSAP when detected |
+| **Animations** | Elementor entrance/hover animation styles from widget settings + HTML |
+| **Media** | Images/fonts referenced by pages (optional `copy_media`) |
+| **Audit** | `audit/coverage.json` — widgets, plugins, animations per page + missing files |
+
+### Per-page asset profiles (v0.1.5+)
+
+Each route gets `pages/<key>/assets.json` listing widgets, animations, plugin deps,
+and the exact CSS/JS paths that page needs. For a 60–80 page site with 5–6 plugins,
+we **union** all page requirements into the global manifest while keeping per-page
+profiles for the GrapeJS editor.
+
+### Scaling to many pages + plugins
+
+1. Export scans **every** route + header/footer/template post
+2. Widget + animation + plugin detection runs per page, merged site-wide
+3. Missing asset files are reported in `audit/coverage.json` before you leave WP
+4. Generator uses per-page profiles so each GrapeJS canvas loads only what it needs
+
+### Editor roadmap (our side)
+
+The export bundle is designed to feed a custom GrapeJS editor:
+
+- Per-page `canvasStyles` / `canvasScripts` from `assets.json`
+- Header/footer as locked canvas components
+- Elementor kit CSS variables mirrored into the iframe
+- Next: animation playback controls, plugin widget toggles, export completeness UI in Studio
+
+## Routes vs templates (important)
+
+Only real **pages/posts** become routes. Public Elementor / ElementsKit library types
+(`elementor_library`, `elementskit_template`, kits, headers, footers, sections) are
+exported under `templates/` + `layout.json` only.
+
+Previously those templates used query permalinks (`?elementskit_template=header-all`)
+which collapsed to path `/` and overwrote the real Home page — fixed in **0.1.3**.
+
+Widget-specific CSS/JS (image carousels / Swiper, nav menus, ElementsKit, theme styles,
+Elementor kit `custom-*.css`) is detected from `_elementor_data` + rendered HTML and
+staged into the bundle — improved in **0.1.4**.
+
+Per-page `assets.json`, animation styles, third-party plugin packages (ElementsKit, AOS, GSAP),
+and `audit/coverage.json` completeness report — **0.1.5**.
+
 ## Usage
 
 ### Admin UI
@@ -58,6 +112,7 @@ layout.json              # header, footer, menus
 routes.json              # all exported routes
 pages/<key>/
   meta.json              # per-page metadata + shortcode list + slots
+  assets.json            # per-page widgets, animations, plugins, CSS/JS paths
   rendered.html          # resolved content slot (no header/footer)
   raw.json | raw.html    # elementor data tree OR raw post_content
 templates/
@@ -65,7 +120,8 @@ templates/
   <id>-<type>.html/.json # rendered + raw template data
 assets/manifest.json     # dependency-ordered CSS/JS + inline blocks
 media/map.json           # attachment id -> path/alt/sizes
-audit/report.json        # unresolved shortcodes + warnings
+audit/report.json        # unresolved shortcodes + warnings + coverage summary
+audit/coverage.json      # site-wide widget/plugin/animation inventory + missing assets
 ```
 
 ## Builder support

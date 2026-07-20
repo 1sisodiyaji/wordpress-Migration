@@ -84,6 +84,7 @@ class Page_Exporter {
 		$found_shortcodes = $this->scan_shortcodes( $raw );
 
 		if ( 'elementor' === $builder && Elementor_Bridge::is_built_with( $post_id ) ) {
+			$this->elementor->ensure_post_css( $post_id );
 			$rendered = $this->elementor->render( $post_id );
 			$raw_data = $this->elementor->data( $post_id );
 		} elseif ( 'gutenberg' === $builder ) {
@@ -122,7 +123,7 @@ class Page_Exporter {
 			'template'     => $route['template'],
 			'renderedFile' => $rendered_file,
 			'rawFile'      => $raw_file,
-			'assetsFile'   => null,
+			'assetsFile'   => $dir . '/assets.json',
 			'slots'        => array(
 				'headerTemplateId' => null,
 				'footerTemplateId' => null,
@@ -130,6 +131,9 @@ class Page_Exporter {
 			'shortcodes'   => $found_shortcodes,
 		);
 		$this->writer->write_json( $dir . '/meta.json', $meta );
+
+		$page_assets = new Widget_Assets( $this->elementor );
+		$this->writer->write_json( $dir . '/assets.json', $page_assets->build_page_profile( $post_id ) );
 
 		$route['dir'] = $dir;
 

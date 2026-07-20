@@ -264,8 +264,16 @@ function isCanvasScriptHref(href: string): boolean {
     href.includes("/elementor/assets/js/webpack.runtime") ||
     href.includes("/elementor/assets/js/frontend-modules") ||
     href.includes("/elementor/assets/js/frontend.min.js") ||
+    href.includes("/elementor/assets/lib/swiper/") ||
+    href.includes("/elementor-pro/assets/js/webpack-pro.runtime") ||
+    href.includes("/elementor-pro/assets/js/frontend.min.js") ||
+    href.includes("/elementor-pro/assets/js/elements-handlers") ||
     href.includes("/elementor-pro/assets/lib/smartmenus/") ||
-    href.includes("/elementskit-lite/") && href.endsWith(".js")
+    href.includes("/elementor-pro/assets/lib/sticky/") ||
+    (href.includes("/elementskit-lite/") && href.endsWith(".js")) ||
+    (href.includes("/aos/") && href.endsWith(".js")) ||
+    (href.includes("/gsap") && href.endsWith(".js")) ||
+    (href.includes("/locomotive-scroll/") && href.endsWith(".js"))
   );
 }
 
@@ -306,16 +314,25 @@ export function resolveCanvasScripts(
   }
 
   const orderedUrls = [
-    ...local.filter((u) => u.includes("webpack.runtime")),
+    ...local.filter((u) => u.includes("webpack.runtime") && u.includes("/elementor/assets/")),
     ...local.filter((u) => u.includes("frontend-modules")),
+    ...local.filter((u) => u.includes("/swiper/") && u.endsWith(".js")),
     ...local.filter((u) => u.includes("/elementor/assets/js/frontend.min.js")),
-    ...local.filter((u) => u.includes("smartmenus")),
+    ...local.filter((u) => u.includes("webpack-pro.runtime")),
+    ...local.filter((u) => u.includes("/elementor-pro/assets/js/frontend.min.js")),
+    ...local.filter((u) => u.includes("elements-handlers")),
+    ...local.filter((u) => u.includes("smartmenus") || u.includes("sticky")),
     ...local.filter(
       (u) =>
         !u.includes("webpack.runtime") &&
         !u.includes("frontend-modules") &&
+        !u.includes("/swiper/") &&
         !u.includes("/elementor/assets/js/frontend.min.js") &&
-        !u.includes("smartmenus"),
+        !u.includes("webpack-pro.runtime") &&
+        !u.includes("/elementor-pro/assets/js/frontend.min.js") &&
+        !u.includes("elements-handlers") &&
+        !u.includes("smartmenus") &&
+        !u.includes("sticky"),
     ),
   ];
 

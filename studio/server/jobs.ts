@@ -1,7 +1,8 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { generateReactGrapeProject, getProjectDir } from "../../generator/lib/scaffold";
+import { getProjectDir } from "../../generator/lib/scaffold";
+import { assertValidAppTsx } from "../../generator/lib/app-shell-template";
 import { initMigrationLog } from "../../lib/wp/migration-log";
 import { upsertSite, normalizeWordPressUrl } from "../../lib/wp/sites";
 import { importLocalSource } from "../../scraper/import-local";
@@ -189,9 +190,16 @@ export async function runGenerate(slug: string): Promise<StudioMeta> {
 
   try {
     const port = allocatePort();
-    await generateReactGrapeProject({ siteSlug: slug, port });
+    // Fresh subprocess so Studio always uses the latest generator on disk (not a cached import).
+    await runCmd("pnpm", ["generate", "--", "--site", slug, "--port", String(port)], ROOT);
 
     const projectDir = getProjectDir(slug);
+    const appPath = path.join(projectDir, "src", "App.tsx");
+    if (!fs.existsSync(appPath)) {
+      throw new Error(`Generate did not create ${appPath}`);
+    }
+    assertValidAppTsx(fs.readFileSync(appPath, "utf8"));
+
     await runCmd("pnpm", ["install"], projectDir);
 
     patchStudioMeta(slug, { generateStatus: "done", editorPort: port });
@@ -268,7 +276,15 @@ export async function startEditor(slug: string): Promise<{ port: number; url: st
   });
 }
 
-export function stopEditor(slug: string): void {
+export function stopScrape(slug: string): void {
+  const child = scrapeProcesses.get(slug);
+  if (child) {
+    child.kill("SIGTERM");
+    scrapeProcesses.delete(slug);
+  }
+}
+
+export function stopEditor(slug: string, opts: { skipMeta?: boolean } = {}): void {
   const child = editorProcesses.get(slug);
   if (child) {
     child.kill("SIGTERM");
@@ -276,7 +292,9 @@ export function stopEditor(slug: string): void {
   }
   const meta = readStudioMeta(slug);
   releasePort(meta?.editorPort);
-  patchStudioMeta(slug, { editorStatus: "stopped", editorPid: undefined });
+  if (!opts.skipMeta && meta) {
+    patchStudioMeta(slug, { editorStatus: "stopped", editorPid: undefined });
+  }
 }
 
 function runCmd(cmd: string, args: string[], cwd: string): Promise<void> {
