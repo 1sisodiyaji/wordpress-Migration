@@ -8,6 +8,7 @@ interface Props {
   onScrape: () => Promise<void>;
   onGenerate: () => Promise<void>;
   onOpenEditor: () => Promise<void>;
+  onStopEditor: () => Promise<void>;
   onUpload: (parts: WpUploadParts) => Promise<void>;
   onDelete: () => void;
 }
@@ -28,6 +29,7 @@ export function ProjectFlow({
   onScrape,
   onGenerate,
   onOpenEditor,
+  onStopEditor,
   onUpload,
   onDelete,
 }: Props) {
@@ -36,6 +38,7 @@ export function ProjectFlow({
   const [wpContent, setWpContent] = useState<File | null>(null);
   const [wpConfig, setWpConfig] = useState<File | null>(null);
   const [uploadBusy, setUploadBusy] = useState(false);
+  const [editorBusy, setEditorBusy] = useState(false);
 
   const scrapeStep = stepState(meta?.scrapeStatus, project.scrapeRunning);
   const generateStep = stepState(meta?.generateStatus, meta?.generateStatus === "running");
@@ -52,7 +55,19 @@ export function ProjectFlow({
   const isPlugin = meta?.sourceType === "plugin";
   const canGenerate = scrapeStep === "done" && generateStep !== "active" && generateStep !== "done";
   const canOpenEditor = generateStep === "done";
+  const editorRunning = project.editorRunning || meta?.editorStatus === "running";
+  const editorStarting = meta?.editorStatus === "starting";
   const audit = project.audit;
+
+  async function handleEditorAction(action: "open" | "stop") {
+    setEditorBusy(true);
+    try {
+      if (action === "stop") await onStopEditor();
+      else await onOpenEditor();
+    } finally {
+      setEditorBusy(false);
+    }
+  }
 
   async function submitUpload() {
     if (!sql && !wpContent && !wpConfig) return;
@@ -173,24 +188,55 @@ export function ProjectFlow({
         <li className={`step step-${editorStep}`}>
           <span className="step-num">3</span>
           <div className="step-body">
-            <h3>Open editor</h3>
+            <div className="step-title-row">
+              <h3>Open editor</h3>
+              {editorRunning && (
+                <span className="live-badge">
+                  <span className="live-dot" aria-hidden="true" />
+                  Live
+                </span>
+              )}
+              {editorStarting && (
+                <span className="badge badge-scraping">Starting…</span>
+              )}
+            </div>
             <p>
               Launch the GrapeJS app on another port
               {meta?.editorPort ? ` (port ${meta.editorPort})` : ""} and open it in a new tab.
             </p>
+
+            {editorRunning && project.editorUrl && (
+              <div className="editor-url-chip">
+                <span className="editor-url-label">Running at</span>
+                <a href={project.editorUrl} target="_blank" rel="noopener noreferrer">
+                  {project.editorUrl}
+                </a>
+              </div>
+            )}
+
             <div className="step-actions">
               <button
                 type="button"
                 className="btn btn-primary"
-                disabled={!canOpenEditor}
-                onClick={onOpenEditor}
+                disabled={!canOpenEditor || editorBusy || editorStarting}
+                onClick={() => handleEditorAction("open")}
               >
-                {project.editorRunning ? "Open editor (running)" : "Start & open in new tab"}
+                {editorStarting
+                  ? "Starting…"
+                  : editorRunning
+                    ? "Open in new tab"
+                    : "Start & open"}
               </button>
-              {project.editorUrl && (
-                <a className="btn btn-ghost" href={project.editorUrl} target="_blank" rel="noopener noreferrer">
-                  {project.editorUrl}
-                </a>
+
+              {(editorRunning || editorStarting) && (
+                <button
+                  type="button"
+                  className="btn btn-stop"
+                  disabled={editorBusy || editorStarting}
+                  onClick={() => handleEditorAction("stop")}
+                >
+                  {editorBusy ? "Stopping…" : "Stop editor"}
+                </button>
               )}
             </div>
           </div>

@@ -6,6 +6,7 @@ import {
   fetchProjects,
   pullPluginExport,
   startEditor,
+  stopEditor,
   startGenerate,
   startScrape,
   uploadPluginExport,
@@ -110,6 +111,13 @@ export default function App() {
     await refresh();
   }
 
+  async function handleStopEditor() {
+    if (!active) return;
+    setError(null);
+    await stopEditor(active.slug);
+    await refresh();
+  }
+
   async function handleUpload(parts: WpUploadParts) {
     if (!active) return;
     setError(null);
@@ -211,6 +219,7 @@ export default function App() {
               onScrape={handleScrape}
               onGenerate={handleGenerate}
               onOpenEditor={handleOpenEditor}
+              onStopEditor={handleStopEditor}
               onUpload={handleUpload}
               onDelete={() => handleDelete(active.slug)}
             />

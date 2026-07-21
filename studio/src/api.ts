@@ -137,6 +137,12 @@ export async function startEditor(slug: string): Promise<{ url: string; port: nu
   return { url: data.url, port: data.port };
 }
 
+export async function stopEditor(slug: string): Promise<void> {
+  const res = await fetch(`/api/projects/${slug}/editor/stop`, { method: "POST" });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error ?? "Editor failed to stop");
+}
+
 export async function deleteProject(slug: string): Promise<void> {
   const res = await fetch(`/api/projects/${slug}`, { method: "DELETE" });
   const data = await res.json().catch(() => ({}));

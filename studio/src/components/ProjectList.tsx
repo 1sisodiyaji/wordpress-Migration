@@ -45,7 +45,10 @@ export function ProjectList({ projects, onOpen, onDelete }: Props) {
           <article key={p.slug} className="project-card">
             <div className="project-card-top">
               <h3>{p.meta?.name ?? p.slug}</h3>
-              <span className={`badge badge-${badge.replace(/\s+/g, "-")}`}>{badge}</span>
+              <span className={`badge badge-${badge.replace(/\s+/g, "-")}`}>
+                {badge === "editor live" && <span className="live-dot" aria-hidden="true" />}
+                {badge}
+              </span>
             </div>
 
             <p className="muted project-url">{sourceLabel(p)}</p>

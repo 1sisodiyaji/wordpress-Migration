@@ -19,6 +19,7 @@ import {
   runImportFromFiles,
   runScrapeFromUrl,
   startEditor,
+  stopEditor,
 } from "./jobs";
 import { getImportDir, createStudioMeta, patchStudioMeta, readStudioMeta } from "./state";
 import { getWpImportStatus } from "../../lib/wp-import/store-parts";
@@ -299,6 +300,18 @@ export function registerApi(app: Express): void {
       const message = err instanceof Error ? err.message : String(err);
       res.status(500).json({ error: message });
     }
+  });
+
+  app.post("/api/projects/:slug/editor/stop", (req, res) => {
+    const slug = String(req.params.slug);
+    const meta = readStudioMeta(slug);
+    if (!meta) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+
+    stopEditor(slug);
+    res.json({ ok: true, meta: readStudioMeta(slug) });
   });
 
   app.get("/api/projects/:slug/logs", (req, res) => {
