@@ -4,6 +4,18 @@ A WordPress plugin that exports a **complete, structured snapshot** of a site â€
 
 It runs **inside WordPress**, so shortcodes, Elementor, and Theme Builder / ElementsKit templates are fully resolved (unlike an external scraper).
 
+### Shortcodes & nested templates (v0.1.9+)
+
+Elementor HTML widgets and failed template embeds often leave literal `[shortcodes]`
+in export HTML. **0.1.9** adds `Shortcode_Resolver`:
+
+- Expands `[elementor-template id="â€¦"]` (and ElementsKit equivalents) by rendering
+  the referenced document when the WP shortcode is missing or returns empty
+- Runs `do_shortcode()` in multiple passes after Elementor render
+- Scans `_elementor_data` for Shortcode / Template widgets (not only empty `post_content`)
+- Writes `pages/{key}/shortcodes.json` with detected + expanded inventory
+- Audits only real WP shortcode leftovers (no more false positives from JS `[idx]`)
+
 ## Why
 
 An external scraper cannot reliably resolve `[shortcodes]`, Elementor widget trees, or Theme Builder header/footer assignment because those require the WordPress runtime. This plugin renders everything from within WP and emits a versioned bundle matching `export-schema/v2/manifest.schema.json` in the main repo.

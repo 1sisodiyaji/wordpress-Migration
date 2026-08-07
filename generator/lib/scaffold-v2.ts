@@ -2,11 +2,13 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   ensureCriticalCanvasCss,
-  criticalCanvasStyleHrefs,
+  extractInlineElementorStyles,
+  mirrorRemoteMediaUrls,
   patchElementorCssUrls,
   prepareGrapeHtmlForCanvas,
   rewriteAssetUrls,
   withElementorPreviewStyle,
+  writeElementorCanvasFixStyle,
   writeElementorKitVarsStyle,
   writeElementorPreviewStyle,
 } from "./grape-prep";
@@ -62,11 +64,16 @@ export async function generateReactGrapeProjectV2(opts: {
   ensureCriticalCanvasCss(projectAssetsDir, [site.assetsSourceDir, ...tryDataRoots]);
 
   writeElementorPreviewStyle(projectAssetsDir);
+  writeElementorCanvasFixStyle(projectAssetsDir);
   writeGrapeBlocksStyle(projectAssetsDir);
   patchElementorCssUrls(projectAssetsDir);
-  const elementorKitClasses = writeElementorKitVarsStyle(projectAssetsDir);
 
-  writeData(projectDir, site, elementorKitClasses);
+  writeData(projectDir, site, []);
+  const elementorKitClasses = writeElementorKitVarsStyle(projectAssetsDir, {
+    wordpressUrl: site.wordpressUrl,
+  });
+  patchSiteKitClasses(projectDir, elementorKitClasses);
+
   writeLayoutComponents(projectDir);
   writeSiteAssets(projectDir);
   writeGrapeRegion(projectDir);
@@ -143,16 +150,30 @@ function blockModeCanvasStyles(fullStyles: string[]): string[] {
 function writeData(projectDir: string, site: PluginSite, elementorKitClasses: string[] = []): void {
   const assetsRoot = path.join(projectDir, "public", "assets");
 
+  const headerExtracted = extractInlineElementorStyles(
+    mirrorRemoteMediaUrls(rewriteAssetUrls(site.headerHtml), assetsRoot),
+    assetsRoot,
+    { name: "layout-header-inline" },
+  );
+  const footerExtracted = extractInlineElementorStyles(
+    mirrorRemoteMediaUrls(rewriteAssetUrls(site.footerHtml), assetsRoot),
+    assetsRoot,
+    { name: "layout-footer-inline" },
+  );
+  const layoutStyleHrefs = [...headerExtracted.styleHrefs, ...footerExtracted.styleHrefs];
+
   const pages = site.pages.map((p) => {
     const canvas = pageCanvasAssets(site, p, assetsRoot);
+    // Prefer rendered HTML — Elementor→blocks conversion drops widgets/templates/CSS hooks.
+    const contentMode = "html" as const;
     const grapeBlocks = loadGrapeBlocksForPage(site.slug, p.key);
-    const contentMode = grapeBlocks?.length ? "blocks" : "html";
-    const canvasStyles =
-      contentMode === "blocks"
-        ? blockModeCanvasStyles(withElementorPreviewStyle(canvas.styles))
-        : withElementorPreviewStyle(canvas.styles);
-    // Keep curated Elementor scripts in blocks mode so widgets/buttons stay interactive in canvas.
-    const canvasScripts = canvas.scripts;
+    const mirrored = mirrorRemoteMediaUrls(rewriteAssetUrls(p.contentHtml), assetsRoot);
+    const extracted = extractInlineElementorStyles(mirrored, assetsRoot, { postId: p.postId });
+    const canvasStyles = withElementorPreviewStyle([
+      ...canvas.styles,
+      ...layoutStyleHrefs,
+      ...extracted.styleHrefs,
+    ]);
 
     return {
       key: p.key,
@@ -161,21 +182,16 @@ function writeData(projectDir: string, site: PluginSite, elementorKitClasses: st
       postId: p.postId,
       contentMode,
       grapeBlocks: grapeBlocks ?? undefined,
-      contentHtml: prepareGrapeHtmlForCanvas(p.contentHtml),
+      contentHtml: prepareGrapeHtmlForCanvas(extracted.html),
       canvasStyles,
-      canvasScripts,
+      canvasScripts: canvas.scripts,
     };
   });
 
-  const globalStyles = new Set<string>(site.globalStyles);
   const globalScripts = new Set<string>(site.globalScripts);
   for (const p of pages) {
-    for (const s of p.canvasStyles) globalStyles.add(s);
     for (const s of p.canvasScripts) globalScripts.add(s);
   }
-  // Critical Elementor/theme CSS first, then kit vars / preview, then the rest.
-  const critical = criticalCanvasStyleHrefs(assetsRoot);
-  const orderedStyles = withElementorPreviewStyle([...critical, ...globalStyles]);
 
   fs.writeFileSync(
     path.join(projectDir, "src", "data", "site.json"),
@@ -185,7 +201,8 @@ function writeData(projectDir: string, site: PluginSite, elementorKitClasses: st
         name: site.name,
         exportFingerprint: site.exportFingerprint,
         elementorKitClasses,
-        canvasStyles: orderedStyles,
+        // Parent document must NOT load Elementor CSS (breaks GrapeJS icons).
+        canvasStyles: [],
         canvasScripts: [...globalScripts],
         pages,
       },
@@ -199,8 +216,8 @@ function writeData(projectDir: string, site: PluginSite, elementorKitClasses: st
     path.join(projectDir, "src", "data", "layout.json"),
     JSON.stringify(
       {
-        headerHtml: rewriteAssetUrls(site.headerHtml),
-        footerHtml: rewriteAssetUrls(site.footerHtml),
+        headerHtml: prepareGrapeHtmlForCanvas(headerExtracted.html),
+        footerHtml: prepareGrapeHtmlForCanvas(footerExtracted.html),
         menus: site.menus,
       },
       null,
@@ -208,6 +225,14 @@ function writeData(projectDir: string, site: PluginSite, elementorKitClasses: st
     ),
     "utf8",
   );
+}
+
+function patchSiteKitClasses(projectDir: string, elementorKitClasses: string[]): void {
+  const sitePath = path.join(projectDir, "src", "data", "site.json");
+  if (!fs.existsSync(sitePath)) return;
+  const site = JSON.parse(fs.readFileSync(sitePath, "utf8")) as { elementorKitClasses?: string[] };
+  site.elementorKitClasses = elementorKitClasses;
+  fs.writeFileSync(sitePath, JSON.stringify(site, null, 2), "utf8");
 }
 
 function writeLayoutComponents(projectDir: string): void {
@@ -345,28 +370,8 @@ export function SiteLayout({ children }: { children: ReactNode }) {
 function writeSiteAssets(projectDir: string): void {
   fs.writeFileSync(
     path.join(projectDir, "src", "components", "layout", "SiteAssets.tsx"),
-    `import { useEffect } from "react";
-import siteData from "../../data/site.json";
-
-/** Optional outer-shell stylesheets. Header/footer render inside the GrapeJS canvas with Elementor CSS. */
+    `/** Canvas CSS must load only inside the GrapeJS iframe (canvas.styles). */
 export function SiteAssets() {
-  useEffect(() => {
-    const links: HTMLLinkElement[] = [];
-    for (const href of siteData.canvasStyles ?? []) {
-      if (document.querySelector(\`link[data-site-asset="\${href}"]\`)) continue;
-      const link = document.createElement("link");
-      link.rel = "stylesheet";
-      link.href = href;
-      link.dataset.siteAsset = href;
-      document.head.appendChild(link);
-      links.push(link);
-    }
-
-    return () => {
-      links.forEach((el) => el.remove());
-    };
-  }, []);
-
   return null;
 }
 `,
@@ -393,8 +398,8 @@ function grapeStorageKey(pageKey: string): string {
   const fp = siteData.exportFingerprint ?? siteData.slug;
   const page = siteData.pages.find((p) => p.key === pageKey);
   const mode = page?.contentMode ?? "html";
-  // v3 = header/footer live inside the canvas as shared components
-  return \`grape-\${fp}-\${mode}-layout-v3-\${pageKey}\`;
+  // v6 = eager/mirrored images; inline Elementor CSS extracted; kit on canvas body
+  return \`grape-\${fp}-\${mode}-layout-v6-\${pageKey}\`;
 }
 
 function hasStoredProject(pageKey: string): boolean {
@@ -421,14 +426,27 @@ function revealElementorWidgets(editor: Editor): void {
   });
 }
 
+/** GrapeJS iframes often never fire IntersectionObserver — force eager img loads. */
+function forceEagerImages(editor: Editor): void {
+  const doc = canvasDocument(editor);
+  if (!doc) return;
+  doc.querySelectorAll("img").forEach((img) => {
+    img.setAttribute("loading", "eager");
+    img.removeAttribute("decoding");
+    const dataSrc = img.getAttribute("data-src") || img.getAttribute("data-lazy-src");
+    if (dataSrc && (!img.getAttribute("src") || img.getAttribute("src")?.startsWith("data:"))) {
+      img.setAttribute("src", dataSrc);
+    }
+  });
+}
+
 /** WP puts Elementor kit class on <body>; GrapeJS canvas must too for global colors. */
 function applyElementorKitClasses(editor: Editor): void {
   const doc = canvasDocument(editor);
   const body = doc?.body;
   if (!body) return;
   const kits =
-    (siteData as { elementorKitClasses?: string[] }).elementorKitClasses ??
-    ["elementor-kit-9"];
+    (siteData as { elementorKitClasses?: string[] }).elementorKitClasses ?? [];
   for (const cls of kits) {
     if (cls) body.classList.add(cls);
   }
@@ -444,16 +462,12 @@ function scrollCanvasToHash(editor: Editor, hash: string): void {
 
 /** Shared layout regions used on every page inside the GrapeJS canvas. */
 function registerLayoutComponents(editor: Editor): void {
-  const headerHtml = getHeaderHtml();
-  const footerHtml = getFooterHtml();
-
   editor.DomComponents.addType("site-header", {
     model: {
       defaults: {
         tagName: "header",
         name: "Site Header",
         attributes: { class: "site-header", "data-layout": "header" },
-        components: headerHtml || undefined,
         droppable: false,
         removable: false,
         copyable: false,
@@ -470,7 +484,6 @@ function registerLayoutComponents(editor: Editor): void {
         tagName: "footer",
         name: "Site Footer",
         attributes: { class: "site-footer", "data-layout": "footer" },
-        components: footerHtml || undefined,
         droppable: false,
         removable: false,
         copyable: false,
@@ -496,24 +509,40 @@ function registerLayoutComponents(editor: Editor): void {
   });
 }
 
-/** Build canvas tree: Header → page body → Footer (standard page editor pattern). */
+/**
+ * HTML mode: one HTML string (header + main + footer) so GrapeJS parses Elementor
+ * markup once. Nested component types re-parse and often drop attributes/structure.
+ */
+function buildPageHtml(bodyHtml: string): string {
+  const headerHtml = getHeaderHtml();
+  const footerHtml = getFooterHtml();
+  const parts: string[] = [];
+  if (headerHtml) {
+    parts.push(\`<header class="site-header" data-layout="header">\${headerHtml}</header>\`);
+  }
+  parts.push(\`<main class="page-body" data-layout="body">\${bodyHtml}</main>\`);
+  if (footerHtml) {
+    parts.push(\`<footer class="site-footer" data-layout="footer">\${footerHtml}</footer>\`);
+  }
+  return parts.join("\\n");
+}
+
 function buildPageComponents(
   useBlocks: boolean,
   grapeBlocks: unknown[] | null,
   bodyHtml: string,
-): unknown[] {
+): unknown {
+  if (!useBlocks) return buildPageHtml(bodyHtml);
   const headerHtml = getHeaderHtml();
   const footerHtml = getFooterHtml();
-  const bodyComponents = useBlocks && grapeBlocks ? grapeBlocks : bodyHtml
-
   const tree: unknown[] = [];
-  if (headerHtml) tree.push({ type: "site-header" });
-  tree.push({ type: "page-body", components: bodyComponents });
-  if (footerHtml) tree.push({ type: "site-footer" });
+  if (headerHtml) tree.push({ type: "site-header", components: headerHtml });
+  tree.push({ type: "page-body", components: grapeBlocks ?? bodyHtml });
+  if (footerHtml) tree.push({ type: "site-footer", components: footerHtml });
   return tree;
 }
 
-/** Full-page GrapeJS editor: shared header/footer components + editable page body. */
+/** Full-page GrapeJS editor: shared header/footer + editable page body. */
 export function GrapeRegion({ pageKey, initialHtml }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<Editor | null>(null);
@@ -570,6 +599,7 @@ export function GrapeRegion({ pageKey, initialHtml }: Props) {
         editor.setComponents(initialContent as Parameters<Editor["setComponents"]>[0]);
       }
       revealElementorWidgets(editor);
+      forceEagerImages(editor);
       applyElementorKitClasses(editor);
       scrollCanvasToHash(editor, window.location.hash);
       host.classList.add("grape-ready");

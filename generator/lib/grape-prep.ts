@@ -1,5 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { extractPageShellBody } from "../../lib/wp/page-shell";
 
 /** Body HTML for GrapeJS, with wp-content URLs rewritten to /assets/wp-content/. */
@@ -26,11 +28,42 @@ const ELEMENTOR_PREVIEW_STYLE_CONTENT = `/* Elementor marks animated widgets inv
 }
 `;
 
-/** Strip Elementor animation gating classes so static preview is not blank. */
+/**
+ * Strip Elementor animation gating + force eager images.
+ * GrapeJS iframes often never fire IntersectionObserver for loading="lazy".
+ */
 export function prepareGrapeHtmlForCanvas(html: string): string {
   return rewriteAssetUrls(html)
     .replace(/\s*elementor-invisible\b/g, "")
-    .replace(/\s*elementor-animation-\S+/g, "");
+    .replace(/\s*elementor-animation-\S+/g, "")
+    .replace(/\sloading=["']lazy["']/gi, ' loading="eager"')
+    .replace(/\sdecoding=["']async["']/gi, "")
+    .replace(/\sfetchpriority=["'][^"']*["']/gi, "");
+}
+
+export const ELEMENTOR_CANVAS_FIX_STYLE_HREF = "/assets/inline/styles/elementor-canvas-fixes.css";
+
+const ELEMENTOR_CANVAS_FIX_STYLE_CONTENT = `/* GrapeJS canvas hardening for Elementor HTML */
+img, video, svg {
+  max-width: 100%;
+  height: auto;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+.elementor-invisible,
+.elementor-widget-image img {
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+.e-con, .e-con-full, .e-flex, .elementor-widget-wrap {
+  min-width: 0;
+}
+`;
+
+export function writeElementorCanvasFixStyle(projectAssetsDir: string): void {
+  const file = path.join(projectAssetsDir, "inline", "styles", "elementor-canvas-fixes.css");
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, ELEMENTOR_CANVAS_FIX_STYLE_CONTENT, "utf8");
 }
 
 export function writeElementorPreviewStyle(projectAssetsDir: string): void {
@@ -46,11 +79,29 @@ export function writeElementorPreviewStyle(projectAssetsDir: string): void {
  * GrapeJS canvas body lacks that class, so footer/header `var(--e-global-color-*)`
  * values never resolve. Mirror kit custom properties onto `:root, body`.
  */
-export function writeElementorKitVarsStyle(projectAssetsDir: string): string[] {
-  const cssDir = path.join(projectAssetsDir, "wp-content", "uploads", "elementor", "css");
+export function writeElementorKitVarsStyle(
+  projectAssetsDir: string,
+  opts?: { wordpressUrl?: string },
+): string[] {
   const kitClasses: string[] = [];
   const varBlocks: string[] = [];
+  const seenKits = new Set<string>();
 
+  const ingestCss = (css: string, label: string): void => {
+    for (const match of css.matchAll(
+      /(?:\:root,\s*body,\s*)?\.elementor-kit-(\d+)\s*\{([^}]*)\}/g,
+    )) {
+      const id = match[1]!;
+      const body = match[2]?.trim() ?? "";
+      const cls = `elementor-kit-${id}`;
+      if (!kitClasses.includes(cls)) kitClasses.push(cls);
+      if (!body || !/--e-global-/.test(body) || seenKits.has(cls)) continue;
+      seenKits.add(cls);
+      varBlocks.push(`/* from ${label} */\n:root, body, .${cls} { ${body} }`);
+    }
+  };
+
+  const cssDir = path.join(projectAssetsDir, "wp-content", "uploads", "elementor", "css");
   if (fs.existsSync(cssDir)) {
     for (const file of fs.readdirSync(cssDir).sort()) {
       if (!file.endsWith(".css")) continue;
@@ -64,28 +115,29 @@ export function writeElementorKitVarsStyle(projectAssetsDir: string): string[] {
         fs.writeFileSync(abs, patched, "utf8");
         css = patched;
       }
+      ingestCss(css, file);
+    }
+  }
 
-      for (const match of css.matchAll(/\.elementor-kit-(\d+)\s*\{([^}]*)\}/g)) {
-        const id = match[1];
-        const body = match[2]?.trim() ?? "";
-        const cls = `elementor-kit-${id}`;
-        if (!kitClasses.includes(cls)) kitClasses.push(cls);
-        if (body && /--e-global-/.test(body)) {
-          varBlocks.push(`/* from ${file} */\n:root, body, .${cls} { ${body} }`);
-        }
-      }
-      // After :root, body patch, also match the expanded selector
-      for (const match of css.matchAll(
-        /:root,\s*body,\s*\.elementor-kit-(\d+)\s*\{([^}]*)\}/g,
-      )) {
-        const id = match[1];
-        const body = match[2]?.trim() ?? "";
-        const cls = `elementor-kit-${id}`;
-        if (!kitClasses.includes(cls)) kitClasses.push(cls);
-        if (body && /--e-global-/.test(body) && !varBlocks.some((b) => b.includes(`.${cls}`))) {
-          varBlocks.push(`/* from ${file} */\n:root, body, .${cls} { ${body} }`);
-        }
-      }
+  const inlineDir = path.join(projectAssetsDir, "inline", "styles");
+  if (fs.existsSync(inlineDir)) {
+    for (const file of fs.readdirSync(inlineDir).sort()) {
+      if (!file.endsWith(".css") || file === "elementor-kit-vars.css") continue;
+      ingestCss(fs.readFileSync(path.join(inlineDir, file), "utf8"), `inline/${file}`);
+    }
+  }
+
+  if (!varBlocks.length && opts?.wordpressUrl) {
+    try {
+      const html = execFileSync(
+        "curl",
+        ["-fsSL", "--max-time", "20", opts.wordpressUrl.replace(/\/$/, "")],
+        { encoding: "utf8", maxBuffer: 8 * 1024 * 1024 },
+      );
+      const match = html.match(/\.elementor-kit-\d+\s*\{[^}]+\}/);
+      if (match?.[0]) ingestCss(match[0], opts.wordpressUrl);
+    } catch {
+      /* offline / unreachable */
     }
   }
 
@@ -102,9 +154,17 @@ export function writeElementorKitVarsStyle(projectAssetsDir: string): string[] {
 
 export function withElementorPreviewStyle(styles: string[]): string[] {
   const without = styles.filter(
-    (s) => s !== ELEMENTOR_PREVIEW_STYLE_HREF && s !== ELEMENTOR_KIT_VARS_STYLE_HREF,
+    (s) =>
+      s !== ELEMENTOR_PREVIEW_STYLE_HREF &&
+      s !== ELEMENTOR_KIT_VARS_STYLE_HREF &&
+      s !== ELEMENTOR_CANVAS_FIX_STYLE_HREF,
   );
-  return [ELEMENTOR_KIT_VARS_STYLE_HREF, ELEMENTOR_PREVIEW_STYLE_HREF, ...without];
+  return [
+    ELEMENTOR_KIT_VARS_STYLE_HREF,
+    ELEMENTOR_PREVIEW_STYLE_HREF,
+    ELEMENTOR_CANVAS_FIX_STYLE_HREF,
+    ...without,
+  ];
 }
 
 function pushIfExists(styles: string[], assetsRoot: string, rel: string): void {
@@ -116,19 +176,24 @@ function pushIfExists(styles: string[], assetsRoot: string, rel: string): void {
 export const CRITICAL_CANVAS_CSS: string[] = [
   "plugins/elementor/assets/css/frontend.min.css",
   "plugins/elementor/assets/lib/eicons/css/elementor-icons.min.css",
+  "plugins/elementor/assets/lib/font-awesome/css/all.min.css",
+  "plugins/elementor/assets/lib/font-awesome/css/v4-shims.min.css",
   "plugins/elementor/assets/lib/swiper/v8/css/swiper.min.css",
   "plugins/elementor/assets/css/conditionals/e-swiper.min.css",
   "plugins/elementor/assets/css/widget-heading.min.css",
   "plugins/elementor/assets/css/widget-image.min.css",
   "plugins/elementor/assets/css/widget-image-carousel.min.css",
+  "plugins/elementor/assets/css/widget-button.min.css",
   "plugins/elementor/assets/css/widget-icon-box.min.css",
   "plugins/elementor/assets/css/widget-icon-list.min.css",
   "plugins/elementor/assets/css/widget-divider.min.css",
+  "plugins/elementor/assets/css/widget-video.min.css",
   "plugins/elementor/assets/css/widget-social-icons.min.css",
   "plugins/elementor/assets/css/widget-counter.min.css",
   "plugins/elementor/assets/lib/animations/animations.min.css",
   "plugins/elementor-pro/assets/css/widget-form.min.css",
   "plugins/elementor-pro/assets/css/widget-nav-menu.min.css",
+  "plugins/elementor-pro/assets/css/widget-call-to-action.min.css",
   "plugins/elementor-pro/assets/css/widget-carousel-module-base.min.css",
   "plugins/elementskit-lite/modules/elementskit-icon-pack/assets/css/ekiticons.css",
   "plugins/elementskit-lite/widgets/init/assets/css/widget-styles.css",
@@ -195,13 +260,126 @@ export function collectCanvasStyles(assetsRoot: string, postId?: number): string
     for (const file of fs.readdirSync(elementorCssDir).sort()) {
       if (!file.endsWith(".css")) continue;
       if (postId && file === `post-${postId}.css`) continue;
-      if (file.startsWith("post-")) {
+      // Shared kit/widget chrome only — other pages' post-*.css conflicts.
+      if (/^(custom-|base-|global)/.test(file)) {
         styles.push(`/assets/wp-content/uploads/elementor/css/${file}`);
       }
     }
   }
 
   return [...new Set(styles)];
+}
+
+/**
+ * Pull Elementor `<style>` blocks into canvas stylesheets. GrapeJS drops nested
+ * `<style>` tags (or dumps them as visible text), which collapses layout CSS.
+ */
+export function extractInlineElementorStyles(
+  html: string,
+  projectAssetsDir: string,
+  opts?: { postId?: number; name?: string },
+): { html: string; styleHrefs: string[] } {
+  const chunks: string[] = [];
+  const stripped = html.replace(/<style\b[^>]*>([\s\S]*?)<\/style>/gi, (_full, css: string) => {
+    const trimmed = String(css).trim();
+    if (trimmed) chunks.push(trimmed);
+    return "";
+  });
+
+  if (!chunks.length) return { html, styleHrefs: [] };
+
+  const fileName = opts?.name
+    ? `${opts.name}.css`
+    : opts?.postId
+      ? `elementor-post-${opts.postId}-inline.css`
+      : `elementor-inline-${createHash("sha1").update(chunks.join("\n")).digest("hex").slice(0, 10)}.css`;
+  const relUnderAssets = path.posix.join("inline", "styles", fileName);
+  const abs = path.join(projectAssetsDir, ...relUnderAssets.split("/"));
+  fs.mkdirSync(path.dirname(abs), { recursive: true });
+  fs.writeFileSync(abs, `/* Extracted from rendered Elementor HTML */\n${chunks.join("\n\n")}\n`, "utf8");
+
+  return { html: stripped, styleHrefs: [`/assets/${relUnderAssets}`] };
+}
+
+/**
+ * Download remote CDN images (ImageKit, etc.) into the project so the canvas
+ * does not depend on third-party availability / lazy-load quirks.
+ */
+export function mirrorRemoteMediaUrls(
+  html: string,
+  projectAssetsDir: string,
+): string {
+  const mirrorDir = path.join(projectAssetsDir, "mirrored");
+  fs.mkdirSync(mirrorDir, { recursive: true });
+  const cache = new Map<string, string | null>();
+
+  const mirrorOne = (url: string): string | null => {
+    if (!/^https?:\/\//i.test(url)) return null;
+    if (url.includes("/assets/")) return null;
+    if (cache.has(url)) return cache.get(url) ?? null;
+    try {
+      const extMatch = url.match(/\.(png|jpe?g|webp|gif|svg|avif|mp4|webm)/i);
+      const ext = (extMatch?.[1] ?? "bin").toLowerCase().replace("jpeg", "jpg");
+      const hash = createHash("sha1").update(url.split("?")[0]!).digest("hex").slice(0, 16);
+      const fileName = `${hash}.${ext}`;
+      const abs = path.join(mirrorDir, fileName);
+      if (!fs.existsSync(abs) || fs.statSync(abs).size === 0) {
+        execFileSync("curl", ["-fsSL", "--max-time", "30", "-o", abs, url], {
+          stdio: "ignore",
+        });
+      }
+      if (fs.existsSync(abs) && fs.statSync(abs).size > 0) {
+        const local = `/assets/mirrored/${fileName}`;
+        cache.set(url, local);
+        return local;
+      }
+    } catch {
+      /* keep remote URL */
+    }
+    cache.set(url, null);
+    return null;
+  };
+
+  let out = html.replace(
+    /\b(src|data-src|data-lazy-src|href|poster)=["'](https?:\/\/[^"']+\.(?:png|jpe?g|webp|gif|svg|avif|mp4|webm)(?:\?[^"']*)?)["']/gi,
+    (full, attr: string, url: string) => {
+      const local = mirrorOne(url);
+      return local ? `${attr}="${local}"` : full;
+    },
+  );
+
+  // Catch CDN URLs embedded in inline JS / JSON (e.g. imageUrl: 'https://ik...')
+  out = out.replace(
+    /(https?:\/\/(?:ik\.imagekit\.io|cdn\.[^/"'\s]+)[^"'\s)]+\.(?:png|jpe?g|webp|gif|svg|avif|mp4|webm)(?:\?[^"'\s)]*)?)/gi,
+    (url: string) => mirrorOne(url) ?? url,
+  );
+
+  out = out.replace(
+    /\bsrcset=["']([^"']+)["']/gi,
+    (full, srcset: string) => {
+      const rewritten = srcset
+        .split(",")
+        .map((part) => {
+          const trimmed = part.trim();
+          const m = trimmed.match(/^(https?:\/\/\S+\.(?:png|jpe?g|webp|gif|svg|avif)(?:\?\S*)?)(\s+.*)?$/i);
+          if (!m) return trimmed;
+          const local = mirrorOne(m[1]!);
+          return local ? `${local}${m[2] ?? ""}` : trimmed;
+        })
+        .join(", ");
+      return `srcset="${rewritten}"`;
+    },
+  );
+
+  out = out.replace(
+    /url\(\s*['"]?(https?:\/\/[^'")\s]+\.(?:png|jpe?g|webp|gif|svg|avif)(?:\?[^'")\s]*)?)['"]?\s*\)/gi,
+    (full, url: string) => {
+      const local = mirrorOne(url);
+      return local ? `url("${local}")` : full;
+    },
+  );
+
+  return out;
 }
 
 /**

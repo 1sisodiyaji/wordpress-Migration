@@ -21,6 +21,8 @@ export interface PluginSitePage {
 export interface PluginSite {
   slug: string;
   name: string;
+  /** Live WordPress origin (for kit CSS scrape when export lacks post-kit CSS). */
+  wordpressUrl?: string;
   /** Busts GrapeJS localStorage when the export is re-imported. */
   exportFingerprint: string;
   headerHtml: string;
@@ -117,6 +119,7 @@ export function readPluginSite(slug: string): PluginSite {
   return {
     slug,
     name: manifest?.site?.name ?? slug,
+    wordpressUrl: manifest?.wordpressUrl ?? manifest?.site?.url,
     exportFingerprint,
     headerHtml,
     footerHtml,

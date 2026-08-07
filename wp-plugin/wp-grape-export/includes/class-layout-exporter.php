@@ -110,9 +110,24 @@ class Layout_Exporter {
 			)
 		);
 
+		$resolver = new Shortcode_Resolver( $this->elementor );
+
 		foreach ( $posts as $post ) {
-			$type      = $this->template_type( $post );
-			$html      = $this->elementor->render( $post->ID );
+			$type = $this->template_type( $post );
+			$this->elementor->ensure_post_css( $post->ID );
+			foreach ( $this->elementor->nested_template_ids( $post->ID ) as $nested_id ) {
+				$this->elementor->ensure_post_css( $nested_id );
+			}
+
+			// Render with shortcode/template expansion so nested embeds are real HTML.
+			$html = $this->elementor->render( $post->ID );
+			$html = $resolver->resolve(
+				$html,
+				array(
+					'postId' => (int) $post->ID,
+					'path'   => 'template:' . $post->post_name,
+				)
+			);
 			$data      = $this->elementor->data( $post->ID );
 			$html_file = 'templates/' . $post->ID . '-' . sanitize_title( $type ? $type : 'template' ) . '.html';
 			$data_file = null;
@@ -123,7 +138,8 @@ class Layout_Exporter {
 				$this->writer->write_json( $data_file, $data );
 			}
 
-			$records[] = array(
+			$shortcodes = $resolver->collect_from_elementor_data( $data );
+			$records[]  = array(
 				'id'         => (int) $post->ID,
 				'slug'       => $post->post_name,
 				'title'      => get_the_title( $post ),
@@ -132,6 +148,7 @@ class Layout_Exporter {
 				'htmlFile'   => $html_file,
 				'dataFile'   => $data_file,
 				'conditions' => $this->conditions( $post ),
+				'shortcodes' => $shortcodes,
 			);
 		}
 

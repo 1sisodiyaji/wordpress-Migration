@@ -18,6 +18,13 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Elementor_Bridge {
 
 	/**
+	 * In-progress render stack (guards nested template cycles).
+	 *
+	 * @var array<int,true>
+	 */
+	private $render_stack = array();
+
+	/**
 	 * Whether Elementor is available.
 	 *
 	 * @return bool
@@ -39,26 +46,75 @@ class Elementor_Bridge {
 	/**
 	 * Render a post's Elementor content for display.
 	 *
-	 * @param int $post_id Post ID.
+	 * Sets up front-end post context (required for many widgets/shortcodes),
+	 * then optionally runs {@see Shortcode_Resolver} so template embeds and
+	 * leftover `[shortcodes]` become real HTML in the export.
+	 *
+	 * @param int   $post_id Post ID.
+	 * @param array $opts {
+	 *     @type bool $resolve_shortcodes Expand shortcodes/templates after render (default true).
+	 * }
 	 * @return string Rendered HTML (empty string on failure).
 	 */
-	public function render( $post_id ) {
-		if ( ! self::available() ) {
+	public function render( $post_id, $opts = array() ) {
+		$post_id = (int) $post_id;
+		if ( ! $post_id || ! self::available() ) {
+			return '';
+		}
+		if ( isset( $this->render_stack[ $post_id ] ) ) {
 			return '';
 		}
 
+		$opts = wp_parse_args(
+			$opts,
+			array(
+				'resolve_shortcodes' => true,
+			)
+		);
+
+		$this->render_stack[ $post_id ] = true;
+
+		$previous_post = isset( $GLOBALS['post'] ) ? $GLOBALS['post'] : null;
+		$post          = get_post( $post_id );
+		$html          = '';
+
 		try {
+			if ( $post ) {
+				// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
+				$GLOBALS['post'] = $post;
+				setup_postdata( $post );
+			}
+
 			$plugin = \Elementor\Plugin::$instance;
 			if ( $plugin && isset( $plugin->frontend ) && method_exists( $plugin->frontend, 'get_builder_content_for_display' ) ) {
 				// with_css = true so the per-post CSS is registered/enqueued.
-				$html = $plugin->frontend->get_builder_content_for_display( $post_id, true );
-				return is_string( $html ) ? $html : '';
+				$rendered = $plugin->frontend->get_builder_content_for_display( $post_id, true );
+				$html     = is_string( $rendered ) ? $rendered : '';
 			}
-		} catch ( \Throwable $e ) {
-			return '';
+
+			if ( $opts['resolve_shortcodes'] && '' !== $html && false !== strpos( $html, '[' ) ) {
+				$resolver = new Shortcode_Resolver( $this );
+				$html     = $resolver->resolve(
+					$html,
+					array(
+						'postId' => $post_id,
+					)
+				);
+			}
+		} catch ( \Throwable $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement
+			$html = is_string( $html ) ? $html : '';
+		} finally {
+			unset( $this->render_stack[ $post_id ] );
+			if ( $previous_post ) {
+				// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
+				$GLOBALS['post'] = $previous_post;
+				setup_postdata( $previous_post );
+			} elseif ( $post ) {
+				wp_reset_postdata();
+			}
 		}
 
-		return '';
+		return $html;
 	}
 
 	/**
@@ -76,7 +132,28 @@ class Elementor_Bridge {
 			$decoded = json_decode( $raw, true );
 			return is_array( $decoded ) ? $decoded : null;
 		}
-		return is_array( $raw ) ? $raw : null;
+		if ( is_object( $raw ) ) {
+			$raw = json_decode( wp_json_encode( $raw ), true );
+		}
+		return is_array( $raw ) ? $this->to_array_deep( $raw ) : null;
+	}
+
+	/**
+	 * Recursively cast stdClass nodes to associative arrays.
+	 *
+	 * @param mixed $value Value.
+	 * @return mixed
+	 */
+	private function to_array_deep( $value ) {
+		if ( is_object( $value ) ) {
+			$value = (array) $value;
+		}
+		if ( is_array( $value ) ) {
+			foreach ( $value as $k => $v ) {
+				$value[ $k ] = $this->to_array_deep( $v );
+			}
+		}
+		return $value;
 	}
 
 	/**
@@ -87,6 +164,47 @@ class Elementor_Bridge {
 	 */
 	public function document_type( $post_id ) {
 		return (string) get_post_meta( $post_id, '_elementor_template_type', true );
+	}
+
+	/**
+	 * Collect nested Elementor template IDs referenced by a document.
+	 *
+	 * @param int $post_id Post ID.
+	 * @return int[]
+	 */
+	public function nested_template_ids( $post_id ) {
+		$tree = $this->data( $post_id );
+		if ( ! $tree ) {
+			return array();
+		}
+		$resolver = new Shortcode_Resolver( $this );
+		$found    = $resolver->collect_from_elementor_data( $tree );
+		$ids      = array();
+			foreach ( $found as $row ) {
+			if ( ! empty( $row['templateId'] ) ) {
+				$ids[] = (int) $row['templateId'];
+				continue;
+			}
+			$attrs = isset( $row['attrs'] ) ? $row['attrs'] : array();
+			if ( is_object( $attrs ) ) {
+				$attrs = (array) $attrs;
+			}
+			if ( ! is_array( $attrs ) ) {
+				continue;
+			}
+			$id = 0;
+			if ( ! empty( $attrs['id'] ) && is_numeric( $attrs['id'] ) ) {
+				$id = (int) $attrs['id'];
+			}
+			if ( $id <= 0 ) {
+				continue;
+			}
+			$tag = isset( $row['tag'] ) ? (string) $row['tag'] : '';
+			if ( in_array( $tag, Shortcode_Resolver::TEMPLATE_SHORTCODE_TAGS, true ) ) {
+				$ids[] = $id;
+			}
+		}
+		return array_values( array_unique( array_filter( $ids ) ) );
 	}
 
 	/**
@@ -113,10 +231,10 @@ class Elementor_Bridge {
 				}
 			} else {
 				// Fallback: rendering with_css=true triggers CSS registration.
-				$this->render( $post_id );
+				$this->render( $post_id, array( 'resolve_shortcodes' => false ) );
 			}
 		} catch ( \Throwable $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement
-			$this->render( $post_id );
+			$this->render( $post_id, array( 'resolve_shortcodes' => false ) );
 		}
 
 		return is_readable( $css_file );

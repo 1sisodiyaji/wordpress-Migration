@@ -338,6 +338,7 @@ function StudioApp() {
       user={user}
       title={dashTitle}
       subtitle={dashSubtitle}
+      activeNav={route.kind === "project" ? "project" : "projects"}
       onHome={() => navigate({ kind: "dashboard" })}
       onLogout={handleLogout}
       onTheme={switchTheme}
@@ -345,7 +346,7 @@ function StudioApp() {
       actions={
         route.kind === "dashboard" ? (
           <button type="button" className="btn btn-primary" onClick={() => setShowNew(true)}>
-            + New project
+            Create project
           </button>
         ) : undefined
       }
@@ -368,18 +369,18 @@ function StudioApp() {
           ) : (
             <>
               {projects.length > 0 && (
-                <section className="stats-row" aria-label="Project statistics">
-                  <article className="stat-card">
-                    <strong>{stats.total}</strong>
+                <section className="gcp-metrics" aria-label="Project statistics">
+                  <article className="gcp-metric">
                     <span>Total projects</span>
+                    <strong>{stats.total}</strong>
                   </article>
-                  <article className="stat-card">
-                    <strong>{stats.ready}</strong>
+                  <article className="gcp-metric">
                     <span>Converted</span>
+                    <strong>{stats.ready}</strong>
                   </article>
-                  <article className="stat-card">
-                    <strong>{stats.live}</strong>
+                  <article className="gcp-metric">
                     <span>Editors running</span>
+                    <strong>{stats.live}</strong>
                   </article>
                 </section>
               )}
@@ -388,7 +389,12 @@ function StudioApp() {
                 <NewProjectPanel onClose={() => setShowNew(false)} onCreate={handleCreate} />
               )}
 
-              <ProjectList projects={projects} onOpen={openProject} onDelete={handleDelete} />
+              <ProjectList
+                projects={projects}
+                onOpen={openProject}
+                onDelete={handleDelete}
+                onCreate={() => setShowNew(true)}
+              />
             </>
           )}
         </>

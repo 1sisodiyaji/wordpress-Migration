@@ -13,7 +13,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 /**
  * Renders each route's main content region (not header/footer), resolving
- * shortcodes through the WordPress runtime.
+ * shortcodes through the WordPress runtime and expanding Elementor/ElementsKit
+ * template embeds so the export contains real HTML, not `[shortcode]` stubs.
  */
 class Page_Exporter {
 
@@ -39,6 +40,13 @@ class Page_Exporter {
 	private $elementor;
 
 	/**
+	 * Shared shortcode resolver.
+	 *
+	 * @var Shortcode_Resolver
+	 */
+	private $resolver;
+
+	/**
 	 * Unresolved shortcode audit entries.
 	 *
 	 * @var array[]
@@ -60,6 +68,7 @@ class Page_Exporter {
 		$this->writer    = $writer;
 		$this->builder   = $builder;
 		$this->elementor = new Elementor_Bridge();
+		$this->resolver  = new Shortcode_Resolver( $this->elementor );
 	}
 
 	/**
@@ -81,12 +90,24 @@ class Page_Exporter {
 		$builder = $route['pageBuilder'];
 		$raw     = (string) $post->post_content;
 
+		$this->resolver->reset_inventory();
+
 		$found_shortcodes = $this->scan_shortcodes( $raw );
+		$raw_data         = null;
 
 		if ( 'elementor' === $builder && Elementor_Bridge::is_built_with( $post_id ) ) {
 			$this->elementor->ensure_post_css( $post_id );
+			foreach ( $this->elementor->nested_template_ids( $post_id ) as $nested_id ) {
+				$this->elementor->ensure_post_css( $nested_id );
+			}
+
+			$raw_data         = $this->elementor->data( $post_id );
+			$found_shortcodes = array_merge(
+				$found_shortcodes,
+				$this->resolver->collect_from_elementor_data( $raw_data )
+			);
+
 			$rendered = $this->elementor->render( $post_id );
-			$raw_data = $this->elementor->data( $post_id );
 		} elseif ( 'gutenberg' === $builder ) {
 			// Gutenberg: render blocks through the_content AND capture the
 			// structured block tree so the converter can map blocks -> components.
@@ -98,8 +119,20 @@ class Page_Exporter {
 			$raw_data = null;
 		}
 
-		// Record shortcodes that survived rendering.
-		$this->audit_unresolved( $rendered, $route );
+		// Final pass — catches embeds Elementor left as literal shortcodes
+		// (HTML widget, failed template shortcode, etc.).
+		$rendered = $this->resolver->resolve(
+			$rendered,
+			array(
+				'postId' => $post_id,
+				'path'   => isset( $route['path'] ) ? $route['path'] : '',
+			)
+		);
+
+		$this->unresolved = array_merge(
+			$this->unresolved,
+			$this->resolver->audit_unresolved( $rendered, $route )
+		);
 
 		$rendered_file = $dir . '/rendered.html';
 		$this->writer->write( $rendered_file, $rendered );
@@ -112,6 +145,13 @@ class Page_Exporter {
 			$raw_file = $dir . '/raw.html';
 			$this->writer->write( $raw_file, $raw );
 		}
+
+		$shortcode_report = array(
+			'detected' => $this->dedupe_shortcodes( $found_shortcodes ),
+			'expanded' => $this->resolver->inventory(),
+			'leftover'  => $this->resolver->audit_unresolved( $rendered, $route ),
+		);
+		$this->writer->write_json( $dir . '/shortcodes.json', $shortcode_report );
 
 		$meta = array(
 			'postId'       => $post_id,
@@ -128,7 +168,7 @@ class Page_Exporter {
 				'headerTemplateId' => null,
 				'footerTemplateId' => null,
 			),
-			'shortcodes'   => $found_shortcodes,
+			'shortcodes'   => $shortcode_report['detected'],
 		);
 		$this->writer->write_json( $dir . '/meta.json', $meta );
 
@@ -149,7 +189,8 @@ class Page_Exporter {
 	private function render_classic( $content ) {
 		// apply_filters('the_content') runs do_shortcode, wpautop, block rendering.
 		$rendered = apply_filters( 'the_content', $content );
-		return is_string( $rendered ) ? $rendered : '';
+		$rendered = is_string( $rendered ) ? $rendered : '';
+		return $this->resolver->resolve( $rendered );
 	}
 
 	/**
@@ -200,11 +241,11 @@ class Page_Exporter {
 		}
 
 		return array(
-			'name'      => $name ? $name : 'core/freeform',
-			'attrs'     => isset( $block['attrs'] ) && is_array( $block['attrs'] ) && ! empty( $block['attrs'] )
+			'name'        => $name ? $name : 'core/freeform',
+			'attrs'       => isset( $block['attrs'] ) && is_array( $block['attrs'] ) && ! empty( $block['attrs'] )
 				? $block['attrs']
-				: new \stdClass(),
-			'html'      => isset( $block['innerHTML'] ) ? trim( (string) $block['innerHTML'] ) : '',
+				: array(),
+			'html'        => isset( $block['innerHTML'] ) ? trim( (string) $block['innerHTML'] ) : '',
 			'innerBlocks' => $children,
 		);
 	}
@@ -228,7 +269,9 @@ class Page_Exporter {
 				$attrs = shortcode_parse_atts( $m[3] );
 				$out[] = array(
 					'tag'      => $tag,
-					'attrs'    => is_array( $attrs ) ? $attrs : new \stdClass(),
+					'attrs'    => is_array( $attrs ) ? $attrs : array(),
+					'raw'      => isset( $m[0] ) ? (string) $m[0] : '',
+					'source'   => 'post_content',
 					'resolved' => shortcode_exists( $tag ),
 				);
 			}
@@ -238,28 +281,25 @@ class Page_Exporter {
 	}
 
 	/**
-	 * Record any shortcode-looking leftovers in rendered output.
+	 * Deduplicate shortcode inventory rows.
 	 *
-	 * @param string $rendered Rendered HTML.
-	 * @param array  $route    Route descriptor.
+	 * @param array[] $rows Rows.
+	 * @return array[]
 	 */
-	private function audit_unresolved( $rendered, array $route ) {
-		if ( false === strpos( $rendered, '[' ) ) {
-			return;
-		}
-		if ( preg_match_all( '/\[([a-zA-Z0-9_\-]+)[\s\]]/', $rendered, $matches ) ) {
-			foreach ( array_unique( $matches[1] ) as $tag ) {
-				if ( shortcode_exists( $tag ) ) {
-					// Registered but left in output (nested/escaped) — still flag lightly.
-					continue;
-				}
-				$this->unresolved[] = array(
-					'tag'    => $tag,
-					'postId' => (int) $route['id'],
-					'path'   => $route['path'],
-				);
+	private function dedupe_shortcodes( array $rows ) {
+		$seen = array();
+		$out  = array();
+		foreach ( $rows as $row ) {
+			$key = ( isset( $row['source'] ) ? $row['source'] : '' ) . '|' .
+				( isset( $row['tag'] ) ? $row['tag'] : '' ) . '|' .
+				( isset( $row['raw'] ) ? $row['raw'] : wp_json_encode( isset( $row['attrs'] ) ? $row['attrs'] : array() ) );
+			if ( isset( $seen[ $key ] ) ) {
+				continue;
 			}
+			$seen[ $key ] = true;
+			$out[]        = $row;
 		}
+		return $out;
 	}
 
 	/**

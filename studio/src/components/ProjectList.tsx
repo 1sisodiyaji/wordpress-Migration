@@ -4,6 +4,7 @@ interface Props {
   projects: Project[];
   onOpen: (slug: string) => void;
   onDelete: (slug: string) => void;
+  onCreate?: () => void;
 }
 
 function statusBadge(project: Project): string {
@@ -25,64 +26,101 @@ function sourceLabel(project: Project): string {
   return m.url ?? "Website URL";
 }
 
-export function ProjectList({ projects, onOpen, onDelete }: Props) {
+export function ProjectList({ projects, onOpen, onDelete, onCreate }: Props) {
   if (projects.length === 0) {
     return (
-      <section className="empty-state">
+      <section className="gcp-empty">
+        <div className="gcp-empty-icon" aria-hidden="true">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M4 4h7v7H4V4zm9 0h7v7h-7V4zM4 13h7v7H4v-7zm9 0h7v7h-7v-7z" />
+          </svg>
+        </div>
         <h2>No projects yet</h2>
         <p>Create a project from a URL, WordPress files, or a wp-grape-export bundle.</p>
+        {onCreate ? (
+          <button type="button" className="btn btn-primary" onClick={onCreate}>
+            Create project
+          </button>
+        ) : null}
       </section>
     );
   }
 
   return (
-    <section className="card-grid">
-      {projects.map((p) => {
-        const badge = statusBadge(p);
-        const pages = p.audit?.summary?.pages;
+    <section className="gcp-resource-panel">
+      <div className="gcp-resource-toolbar">
+        <h2 className="gcp-resource-heading">All projects</h2>
+        <span className="gcp-resource-count">{projects.length} resources</span>
+      </div>
 
-        return (
-          <article key={p.slug} className="project-card">
-            <div className="project-card-top">
-              <h3>{p.meta?.name ?? p.slug}</h3>
-              <span className={`badge badge-${badge.replace(/\s+/g, "-")}`}>
-                {badge === "editor live" && <span className="live-dot" aria-hidden="true" />}
-                {badge}
-              </span>
-            </div>
+      <div className="gcp-table-wrap">
+        <table className="gcp-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Source</th>
+              <th>Status</th>
+              <th>Pages</th>
+              <th className="gcp-col-actions">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {projects.map((p) => {
+              const badge = statusBadge(p);
+              const pages = p.audit?.summary?.pages;
+              const name = p.meta?.name ?? p.slug;
 
-            <p className="muted project-url">{sourceLabel(p)}</p>
-
-            <div className="project-meta">
-              <span>{p.meta?.sourceType ?? "unknown"}</span>
-              {typeof pages === "number" && <span>{pages} pages</span>}
-              {p.hasData && <span>Data imported</span>}
-            </div>
-
-            <div className="project-card-actions">
-              <button type="button" className="btn btn-primary" onClick={() => onOpen(p.slug)}>
-                Open
-              </button>
-              <button
-                type="button"
-                className="btn btn-ghost btn-danger"
-                onClick={() => {
-                  const name = p.meta?.name ?? p.slug;
-                  if (
-                    confirm(
-                      `Delete "${name}"?\n\nThis removes all site data (sites/${p.slug}) and the generated project (projects/${p.slug}). This cannot be undone.`,
-                    )
-                  ) {
-                    onDelete(p.slug);
-                  }
-                }}
-              >
-                Delete
-              </button>
-            </div>
-          </article>
-        );
-      })}
+              return (
+                <tr key={p.slug} className="gcp-row" onClick={() => onOpen(p.slug)}>
+                  <td>
+                    <div className="gcp-name-cell">
+                      <span className="gcp-name-icon" aria-hidden="true">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M4 4h7v7H4V4zm9 0h7v7h-7V4zM4 13h7v7H4v-7zm9 0h7v7h-7v-7z" />
+                        </svg>
+                      </span>
+                      <div>
+                        <strong>{name}</strong>
+                        <small>{p.slug}</small>
+                      </div>
+                    </div>
+                  </td>
+                  <td>
+                    <span className="gcp-chip">{sourceLabel(p)}</span>
+                  </td>
+                  <td>
+                    <span className={`badge badge-${badge.replace(/\s+/g, "-")}`}>
+                      {badge === "editor live" && <span className="live-dot" aria-hidden="true" />}
+                      {badge}
+                    </span>
+                  </td>
+                  <td>{typeof pages === "number" ? pages : "—"}</td>
+                  <td className="gcp-col-actions" onClick={(e) => e.stopPropagation()}>
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => onOpen(p.slug)}>
+                      Open
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-text btn-danger btn-sm"
+                      onClick={() => {
+                        if (
+                          confirm(
+                            `Delete "${name}"?\n\nThis removes all site data (sites/${p.slug}) and the generated project (projects/${p.slug}). This cannot be undone.`,
+                          )
+                        ) {
+                          onDelete(p.slug);
+                        }
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </section>
   );
 }
