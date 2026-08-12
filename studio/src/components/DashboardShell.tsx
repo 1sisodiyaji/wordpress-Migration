@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 import type { AuthUser } from "../auth-api";
+import { StudioLogo } from "./StudioLogo";
+import { useScrolled } from "../hooks/useScrolled";
 
 interface Props {
   user: AuthUser;
@@ -52,14 +54,13 @@ export function DashboardShell({
     .join("")
     .slice(0, 2)
     .toUpperCase();
+  const topbarScrolled = useScrolled(10);
 
   return (
     <div className="app dash-app">
       <aside className="dash-sidebar">
         <button type="button" className="dash-brand" onClick={onHome}>
-          <span className="dash-brand-mark" aria-hidden="true">
-            M
-          </span>
+          <StudioLogo size={32} markClassName="dash-brand-logo" />
           <span className="dash-brand-text">
             <strong>Migration Studio</strong>
             <small>Console</small>
@@ -114,7 +115,10 @@ export function DashboardShell({
       </aside>
 
       <div className="dash-main">
-        <header className="dash-topbar">
+        <header className={`dash-topbar${topbarScrolled ? " is-scrolled" : ""}`}>
+          <div className="dash-topbar-brand" aria-hidden={!title}>
+            <StudioLogo size={22} className="dash-topbar-logo" />
+          </div>
           <div className="dash-topbar-title">
             {title ? <h1 className="dash-title">{title}</h1> : null}
             {subtitle ? <p className="dash-subtitle">{subtitle}</p> : null}

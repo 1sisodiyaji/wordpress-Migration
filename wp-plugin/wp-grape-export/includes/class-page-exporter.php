@@ -61,14 +61,30 @@ class Page_Exporter {
 	private $warnings = array();
 
 	/**
+	 * Document IDs resolved from shortcodes / postmeta during page export.
+	 *
+	 * @var array<int,true>
+	 */
+	private $resolved_document_ids = array();
+
+	/**
+	 * Shared layout (optional) — used to stamp header/footer template IDs onto page meta.
+	 *
+	 * @var array|null
+	 */
+	private $layout = null;
+
+	/**
 	 * @param Bundle_Writer $writer  Bundle writer.
 	 * @param string        $builder Detected page builder.
+	 * @param array|null    $layout  Optional layout descriptor.
 	 */
-	public function __construct( Bundle_Writer $writer, $builder ) {
+	public function __construct( Bundle_Writer $writer, $builder, $layout = null ) {
 		$this->writer    = $writer;
 		$this->builder   = $builder;
 		$this->elementor = new Elementor_Bridge();
 		$this->resolver  = new Shortcode_Resolver( $this->elementor );
+		$this->layout    = is_array( $layout ) ? $layout : null;
 	}
 
 	/**
@@ -107,20 +123,21 @@ class Page_Exporter {
 				$this->resolver->collect_from_elementor_data( $raw_data )
 			);
 
-			$rendered = $this->elementor->render( $post_id );
+			// Pre-expand template/CTA shortcodes found in `_elementor_data` by
+			// rendering each referenced post ID from postmeta, then substitute
+			// stubs that Elementor may leave in the page HTML.
+			$rendered = $this->elementor->render( $post_id, array( 'resolve_shortcodes' => false ) );
+			$rendered = $this->expand_elementor_embeds( $rendered, $found_shortcodes, $post_id, $route );
 		} elseif ( 'gutenberg' === $builder ) {
-			// Gutenberg: render blocks through the_content AND capture the
-			// structured block tree so the converter can map blocks -> components.
 			$rendered = $this->render_classic( $raw );
 			$raw_data = $this->parse_blocks_tree( $raw );
 		} else {
-			// Classic: resolve shortcodes through the_content.
 			$rendered = $this->render_classic( $raw );
 			$raw_data = null;
 		}
 
 		// Final pass — catches embeds Elementor left as literal shortcodes
-		// (HTML widget, failed template shortcode, etc.).
+		// (HTML widget, failed template shortcode, CTA id=..., etc.).
 		$rendered = $this->resolver->resolve(
 			$rendered,
 			array(
@@ -128,6 +145,10 @@ class Page_Exporter {
 				'path'   => isset( $route['path'] ) ? $route['path'] : '',
 			)
 		);
+
+		foreach ( $this->resolver->resolved_document_ids() as $rid ) {
+			$this->resolved_document_ids[ (int) $rid ] = true;
+		}
 
 		$this->unresolved = array_merge(
 			$this->unresolved,
@@ -147,11 +168,23 @@ class Page_Exporter {
 		}
 
 		$shortcode_report = array(
-			'detected' => $this->dedupe_shortcodes( $found_shortcodes ),
-			'expanded' => $this->resolver->inventory(),
-			'leftover'  => $this->resolver->audit_unresolved( $rendered, $route ),
+			'detected'           => $this->dedupe_shortcodes( $found_shortcodes ),
+			'expanded'           => $this->resolver->inventory(),
+			'resolvedDocumentIds'=> $this->resolver->resolved_document_ids(),
+			'leftover'           => $this->resolver->audit_unresolved( $rendered, $route ),
 		);
 		$this->writer->write_json( $dir . '/shortcodes.json', $shortcode_report );
+
+		$header_id = null;
+		$footer_id = null;
+		if ( $this->layout ) {
+			if ( ! empty( $this->layout['header']['postId'] ) ) {
+				$header_id = (int) $this->layout['header']['postId'];
+			}
+			if ( ! empty( $this->layout['footer']['postId'] ) ) {
+				$footer_id = (int) $this->layout['footer']['postId'];
+			}
+		}
 
 		$meta = array(
 			'postId'       => $post_id,
@@ -165,8 +198,8 @@ class Page_Exporter {
 			'rawFile'      => $raw_file,
 			'assetsFile'   => $dir . '/assets.json',
 			'slots'        => array(
-				'headerTemplateId' => null,
-				'footerTemplateId' => null,
+				'headerTemplateId' => $header_id,
+				'footerTemplateId' => $footer_id,
 			),
 			'shortcodes'   => $shortcode_report['detected'],
 		);
@@ -303,6 +336,50 @@ class Page_Exporter {
 	}
 
 	/**
+	 * Expand template / CTA embeds discovered in `_elementor_data` by rendering
+	 * each target post ID from `wp_postmeta._elementor_data`.
+	 *
+	 * @param string  $html    Already-rendered page HTML.
+	 * @param array[] $found   Shortcode inventory from Elementor tree.
+	 * @param int     $post_id Host page ID.
+	 * @param array   $route   Route descriptor.
+	 * @return string
+	 */
+	private function expand_elementor_embeds( $html, array $found, $post_id, array $route ) {
+		$html = is_string( $html ) ? $html : '';
+
+		foreach ( $found as $row ) {
+			$id = 0;
+			if ( ! empty( $row['templateId'] ) ) {
+				$id = (int) $row['templateId'];
+			} elseif ( ! empty( $row['attrs'] ) && is_array( $row['attrs'] ) ) {
+				$id = Shortcode_Resolver::extract_document_id( $row['attrs'] );
+			}
+			if ( $id <= 0 || $id === (int) $post_id ) {
+				continue;
+			}
+			if ( ! Elementor_Bridge::has_elementor_data( $id ) ) {
+				continue;
+			}
+
+			$this->elementor->ensure_post_css( $id );
+			$inner = $this->elementor->render( $id, array( 'resolve_shortcodes' => true ) );
+			if ( ! is_string( $inner ) || '' === trim( $inner ) ) {
+				continue;
+			}
+
+			$this->resolved_document_ids[ $id ] = true;
+
+			$raw = isset( $row['raw'] ) ? (string) $row['raw'] : '';
+			if ( $raw && false !== strpos( $html, $raw ) ) {
+				$html = str_replace( $raw, $inner, $html );
+			}
+		}
+
+		return $html;
+	}
+
+	/**
 	 * Turn a route path into a filesystem-safe key.
 	 *
 	 * @param string $path Route path.
@@ -321,12 +398,13 @@ class Page_Exporter {
 	/**
 	 * Audit results.
 	 *
-	 * @return array{unresolvedShortcodes:array,warnings:array}
+	 * @return array{unresolvedShortcodes:array,warnings:array,resolvedDocumentIds:array}
 	 */
 	public function audit() {
 		return array(
 			'unresolvedShortcodes' => $this->unresolved,
 			'warnings'             => $this->warnings,
+			'resolvedDocumentIds'  => array_map( 'intval', array_keys( $this->resolved_document_ids ) ),
 		);
 	}
 }

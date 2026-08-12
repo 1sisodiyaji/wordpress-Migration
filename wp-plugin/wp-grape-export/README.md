@@ -4,6 +4,20 @@ A WordPress plugin that exports a **complete, structured snapshot** of a site �
 
 It runs **inside WordPress**, so shortcodes, Elementor, and Theme Builder / ElementsKit templates are fully resolved (unlike an external scraper).
 
+### Shortcodes & nested templates (v0.1.11+)
+
+Elementor HTML widgets and CTA embeds often leave literal `[shortcodes id="123"]`
+whose real markup lives in `wp_postmeta._elementor_data` for that post ID.
+
+**0.1.11** improves header/footer + shortcode export:
+
+- Inlines header/footer **HTML** into `layout.json` (not only `htmlFile` paths)
+- Detects Theme Builder / HFE location via `_elementor_location` (+ ElementsKit/HFE CPTs)
+- Expands ID-based shortcodes (`[elementor-template id="…"]`, `[hfe_template …]`,
+  any `[tag id="123"]` pointing at an Elementor document) by rendering `_elementor_data`
+- Writes orphan CTA/section documents into `templates/` when referenced only by shortcode
+- Stamps `slots.headerTemplateId` / `footerTemplateId` on each page `meta.json`
+
 ### Shortcodes & nested templates (v0.1.9+)
 
 Elementor HTML widgets and failed template embeds often leave literal `[shortcodes]`

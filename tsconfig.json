@@ -18,6 +18,6 @@
     },
     "types": ["node"]
   },
-  "include": ["scraper/**/*.ts", "generator/**/*.ts", "lib/**/*.ts", "studio/**/*.ts", "studio/**/*.tsx", "scripts/**/*.ts"],
+  "include": ["scraper/**/*.ts", "generator/**/*.ts", "lib/**/*.ts", "studio/**/*.ts", "studio/**/*.tsx", "studio/**/*.jsx", "scripts/**/*.ts"],
   "exclude": ["node_modules", "projects/**", "sites/**", "public/**"]
 }

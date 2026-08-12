@@ -107,40 +107,37 @@ export function registerUploadRoutes(app: Express): void {
   app.post(
     "/api/projects/:slug/plugin-export",
     upload.single("bundle"),
-    async (req, res) => {
-      const slug = String(req.params.slug);
-      const meta = readStudioMeta(slug);
-      if (!meta) {
-        res.status(404).json({ error: "Project not found" });
-        return;
-      }
-
-      const file = req.file;
-      if (!file) {
-        res.status(400).json({ error: "Upload a wp-grape-export .zip as 'bundle'." });
-        return;
-      }
-      if (!/\.zip$/i.test(file.originalname)) {
-        res.status(400).json({ error: "Plugin export must be a .zip file" });
-        return;
-      }
-
-      const importDir = getImportDir(slug);
-      fs.mkdirSync(importDir, { recursive: true });
-      const zipPath = path.join(importDir, "plugin-export.zip");
-      fs.writeFileSync(zipPath, file.buffer);
-
-      patchStudioMeta(slug, { sourceType: "plugin", uploadedFiles: [file.originalname] });
-
+    async (req, res, next) => {
       try {
-        await runImportFromPluginExport(slug, meta.name, zipPath);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        res.status(500).json({ error: message });
-        return;
-      }
+        const slug = String(req.params.slug);
+        const meta = readStudioMeta(slug);
+        if (!meta) {
+          res.status(404).json({ error: "Project not found" });
+          return;
+        }
 
-      res.json({ ok: true, imported: true });
+        const file = req.file;
+        if (!file) {
+          res.status(400).json({ error: "Upload a wp-grape-export .zip as 'bundle'." });
+          return;
+        }
+        if (!/\.zip$/i.test(file.originalname)) {
+          res.status(400).json({ error: "Plugin export must be a .zip file" });
+          return;
+        }
+
+        const importDir = getImportDir(slug);
+        fs.mkdirSync(importDir, { recursive: true });
+        const zipPath = path.join(importDir, "plugin-export.zip");
+        fs.writeFileSync(zipPath, file.buffer);
+
+        patchStudioMeta(slug, { sourceType: "plugin", uploadedFiles: [file.originalname] });
+
+        await runImportFromPluginExport(slug, meta.name, zipPath);
+        res.json({ ok: true, imported: true });
+      } catch (err) {
+        next(err);
+      }
     },
   );
 }

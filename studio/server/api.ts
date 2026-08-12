@@ -21,7 +21,7 @@ import {
   startEditor,
   stopEditor,
 } from "./jobs";
-import { getImportDir, createStudioMeta, patchStudioMeta, readStudioMeta } from "./state";
+import { getImportDir, createStudioMeta, patchStudioMeta, readStudioMeta, isSiteDirHealthy } from "./state";
 import { getWpImportStatus } from "../../lib/wp-import/store-parts";
 import { registerUploadRoutes } from "./upload";
 import { getMigratedDataDir } from "../../lib/wp/config";
@@ -125,36 +125,44 @@ export function registerApi(app: Express): void {
   });
 
   app.post("/api/projects", (req, res) => {
-    const { name, url, sourceType } = req.body as {
-      name?: string;
-      url?: string;
-      sourceType?: "url" | "files" | "plugin";
-    };
+    try {
+      const { name, url, sourceType } = req.body as {
+        name?: string;
+        url?: string;
+        sourceType?: "url" | "files" | "plugin";
+      };
 
-    const type = sourceType ?? (url ? "url" : "files");
-    const displayName = name?.trim() || (url ? new URL(normalizeWordPressUrl(url)).hostname : "New project");
-    let slug = slugify(displayName);
-    while (readStudioMeta(slug) || getSite(slug)) {
-      slug = `${slugify(displayName)}-${Date.now().toString(36).slice(-4)}`;
+      const type = sourceType ?? (url ? "url" : "files");
+      const displayName =
+        name?.trim() || (url ? new URL(normalizeWordPressUrl(url)).hostname : "New project");
+      let slug = slugify(displayName);
+      // Skip taken or broken leftover folders (e.g. dangling junctions).
+      while (readStudioMeta(slug) || getSite(slug) || isSiteDirHealthy(slug)) {
+        slug = `${slugify(displayName)}-${Date.now().toString(36).slice(-4)}`;
+      }
+      const normalizedUrl = url ? normalizeWordPressUrl(url) : undefined;
+
+      const meta = createStudioMeta({
+        slug,
+        name: displayName,
+        sourceType: type,
+        url: normalizedUrl,
+      });
+
+      upsertSite({
+        slug,
+        url: normalizedUrl ?? `local://${slug}`,
+        name: displayName,
+        status: "migrating",
+      });
+
+      fs.mkdirSync(getImportDir(slug), { recursive: true });
+      res.status(201).json({ project: projectPayload(slug), meta });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[create project]", err);
+      res.status(500).json({ error: message });
     }
-    const normalizedUrl = url ? normalizeWordPressUrl(url) : undefined;
-
-    const meta = createStudioMeta({
-      slug,
-      name: displayName,
-      sourceType: type,
-      url: normalizedUrl,
-    });
-
-    upsertSite({
-      slug,
-      url: normalizedUrl ?? `local://${slug}`,
-      name: displayName,
-      status: "migrating",
-    });
-
-    fs.mkdirSync(getImportDir(slug), { recursive: true });
-    res.status(201).json({ project: projectPayload(slug), meta });
   });
 
   app.get("/api/projects/:slug", (req, res) => {

@@ -17,24 +17,45 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * Why this exists:
  * - Elementor HTML widgets intentionally leave shortcodes unresolved.
- * - Text-editor / custom widgets may leave registered shortcodes in output
- *   when render runs outside a normal front-end request.
+ * - CTA / section / mega-menu embeds are often `[tag id="123"]` whose body
+ *   lives in `wp_postmeta._elementor_data` on that post ID — not in the host page.
  * - Template embeds can fail in admin/REST/CLI context; we fall back to
  *   rendering the referenced Elementor/ElementsKit document ourselves.
  */
 class Shortcode_Resolver {
 
 	/**
-	 * Known shortcode tags that pull in Elementor documents.
+	 * Known shortcode tags that pull in Elementor (or Elementor-compatible) documents.
 	 *
 	 * @var string[]
 	 */
 	const TEMPLATE_SHORTCODE_TAGS = array(
 		'elementor-template',
 		'elementor_template',
+		'INSERT_ELEMENTOR',
 		'elementskit_template',
 		'ekit_template',
 		'ekit-template',
+		'hfe_template',
+		'hfe-template',
+		'ae_template', // AnyWhere Elementor
+		'ELEMENTOR',
+	);
+
+	/**
+	 * Attribute keys that commonly hold the target post/document ID.
+	 *
+	 * @var string[]
+	 */
+	const ID_ATTR_KEYS = array(
+		'id',
+		'template_id',
+		'templateID',
+		'post_id',
+		'postId',
+		'template',
+		'eid',
+		'element_id',
 	);
 
 	/**
@@ -50,6 +71,13 @@ class Shortcode_Resolver {
 	 * @var array<string,string>
 	 */
 	private $resolved = array();
+
+	/**
+	 * Document IDs successfully rendered from postmeta during this pass.
+	 *
+	 * @var array<int,true>
+	 */
+	private $resolved_ids = array();
 
 	/**
 	 * Nesting depth guard.
@@ -77,14 +105,15 @@ class Shortcode_Resolver {
 		if ( '' === $html || false === strpos( $html, '[' ) ) {
 			return $html;
 		}
-		if ( $this->depth >= 6 ) {
+		if ( $this->depth >= 8 ) {
 			return $html;
 		}
 
 		++$this->depth;
 		try {
-			// First expand template-style shortcodes with our Elementor fallback.
+			// First expand template-style / ID-based shortcodes via postmeta.
 			$html = $this->expand_template_shortcodes( $html, $context );
+			$html = $this->expand_id_based_shortcodes( $html, $context );
 
 			// Then run WordPress shortcodes (CF7, galleries, plugin tags, …).
 			for ( $i = 0; $i < 4; $i++ ) {
@@ -97,6 +126,7 @@ class Shortcode_Resolver {
 				}
 				$html = $next;
 				$html = $this->expand_template_shortcodes( $html, $context );
+				$html = $this->expand_id_based_shortcodes( $html, $context );
 			}
 		} finally {
 			--$this->depth;
@@ -123,10 +153,47 @@ class Shortcode_Resolver {
 	}
 
 	/**
+	 * Document IDs that were rendered from `_elementor_data` during resolve.
+	 *
+	 * @return int[]
+	 */
+	public function resolved_document_ids() {
+		return array_map( 'intval', array_keys( $this->resolved_ids ) );
+	}
+
+	/**
 	 * Reset the resolved inventory (call between pages).
 	 */
 	public function reset_inventory() {
-		$this->resolved = array();
+		$this->resolved     = array();
+		$this->resolved_ids = array();
+	}
+
+	/**
+	 * Pull a numeric document/post ID from shortcode attributes.
+	 *
+	 * @param array $atts Attributes.
+	 * @return int
+	 */
+	public static function extract_document_id( array $atts ) {
+		foreach ( self::ID_ATTR_KEYS as $key ) {
+			if ( ! empty( $atts[ $key ] ) && is_numeric( $atts[ $key ] ) ) {
+				return (int) $atts[ $key ];
+			}
+		}
+		// Positional / bare numeric value: [tag 123].
+		foreach ( $atts as $k => $v ) {
+			if ( is_int( $k ) && is_numeric( $v ) ) {
+				return (int) $v;
+			}
+			if ( is_string( $v ) && is_numeric( $v ) && (string) (int) $v === (string) $v ) {
+				// Prefer explicit id keys already checked; accept lone numeric values.
+				if ( is_int( $k ) || '' === (string) $k ) {
+					return (int) $v;
+				}
+			}
+		}
+		return 0;
 	}
 
 	/**
@@ -157,7 +224,6 @@ class Shortcode_Resolver {
 			return $out;
 		}
 
-		// Prefer WordPress's own shortcode matcher (registered tags only).
 		$pattern = get_shortcode_regex();
 		if ( $pattern && preg_match_all( '/' . $pattern . '/s', $html, $matches, PREG_SET_ORDER ) ) {
 			foreach ( $matches as $m ) {
@@ -175,7 +241,6 @@ class Shortcode_Resolver {
 			}
 		}
 
-		// Also catch known template shortcodes even if unregistered in this request.
 		foreach ( self::TEMPLATE_SHORTCODE_TAGS as $tag ) {
 			if ( preg_match_all( '/\[' . preg_quote( $tag, '/' ) . '\s[^\]]*\]/i', $html, $matches ) ) {
 				foreach ( $matches[0] as $raw ) {
@@ -190,8 +255,7 @@ class Shortcode_Resolver {
 			}
 		}
 
-		// Dedupe by raw string.
-		$seen = array();
+		$seen    = array();
 		$deduped = array();
 		foreach ( $out as $row ) {
 			$key = $row['tag'] . '|' . $row['raw'];
@@ -205,59 +269,109 @@ class Shortcode_Resolver {
 	}
 
 	/**
-	 * Expand Elementor / ElementsKit template shortcodes via Elementor_Bridge.
+	 * Expand known Elementor / ElementsKit / HFE template shortcodes via Elementor_Bridge.
 	 *
 	 * @param string $html    HTML.
 	 * @param array  $context Context.
 	 * @return string
 	 */
 	private function expand_template_shortcodes( $html, array $context ) {
-		$tag_alt = implode( '|', array_map( static function ( $t ) {
-			return preg_quote( $t, '/' );
-		}, self::TEMPLATE_SHORTCODE_TAGS ) );
+		$tag_alt = implode(
+			'|',
+			array_map(
+				static function ( $t ) {
+					return preg_quote( $t, '/' );
+				},
+				self::TEMPLATE_SHORTCODE_TAGS
+			)
+		);
 
 		return (string) preg_replace_callback(
 			'/\[(' . $tag_alt . ')\s+([^\]]*)\]/i',
 			function ( $m ) use ( $context ) {
-				$raw  = $m[0];
-				$tag  = strtolower( $m[1] );
-				$atts = shortcode_parse_atts( $m[2] );
-				if ( ! is_array( $atts ) ) {
-					// WP returns a string when there are no key="value" attrs.
-					$atts = array();
-				}
-
-				$id = 0;
-				foreach ( array( 'id', 'template_id', 'post_id', 'template' ) as $key ) {
-					if ( ! empty( $atts[ $key ] ) && is_numeric( $atts[ $key ] ) ) {
-						$id = (int) $atts[ $key ];
-						break;
-					}
-				}
-				if ( $id <= 0 ) {
-					return $raw;
-				}
-
-				// Prefer the real WP shortcode when available.
-				if ( shortcode_exists( $tag ) ) {
-					$via_wp = do_shortcode( $raw );
-					if ( is_string( $via_wp ) && $via_wp !== $raw && '' !== trim( $via_wp ) ) {
-						$this->resolved[ $raw ] = $via_wp;
-						return $this->resolve( $via_wp, $context );
-					}
-				}
-
-				$this->elementor->ensure_post_css( $id );
-				$inner = $this->elementor->render( $id, array( 'resolve_shortcodes' => true ) );
-				if ( ! is_string( $inner ) || '' === trim( $inner ) ) {
-					return $raw;
-				}
-
-				$this->resolved[ $raw ] = $inner;
-				return $inner;
+				return $this->replace_id_shortcode( $m[0], strtolower( $m[1] ), $m[2], $context );
 			},
 			$html
 		);
+	}
+
+	/**
+	 * Catch any leftover `[something id="123"]` that points at an Elementor document.
+	 *
+	 * This covers CTA / section embeds registered under custom shortcode tags
+	 * whose markup is stored in `wp_postmeta._elementor_data` for that ID.
+	 *
+	 * @param string $html    HTML.
+	 * @param array  $context Context.
+	 * @return string
+	 */
+	private function expand_id_based_shortcodes( $html, array $context ) {
+		// [tag … id="123" …] or [tag id=123]
+		return (string) preg_replace_callback(
+			'/\[([a-zA-Z][\w-]*)\s+([^\]]*\b(?:id|template_id|post_id|template)\s*=\s*["\']?\d+["\']?[^\]]*)\]/i',
+			function ( $m ) use ( $context ) {
+				$tag = strtolower( $m[1] );
+				// Skip already-handled known tags (still OK to re-run).
+				return $this->replace_id_shortcode( $m[0], $tag, $m[2], $context );
+			},
+			$html
+		);
+	}
+
+	/**
+	 * Replace one ID-based shortcode with rendered Elementor HTML from postmeta.
+	 *
+	 * @param string $raw     Full shortcode string.
+	 * @param string $tag     Tag name.
+	 * @param string $attrstr Attribute string.
+	 * @param array  $context Context.
+	 * @return string
+	 */
+	private function replace_id_shortcode( $raw, $tag, $attrstr, array $context ) {
+		if ( isset( $this->resolved[ $raw ] ) ) {
+			return $this->resolved[ $raw ];
+		}
+
+		$atts = shortcode_parse_atts( $attrstr );
+		if ( ! is_array( $atts ) ) {
+			$atts = array();
+		}
+
+		$id = self::extract_document_id( $atts );
+		if ( $id <= 0 ) {
+			return $raw;
+		}
+
+		// Prefer the real WP shortcode when it expands to non-empty markup.
+		if ( shortcode_exists( $tag ) ) {
+			$via_wp = do_shortcode( $raw );
+			if ( is_string( $via_wp ) && $via_wp !== $raw && '' !== trim( wp_strip_all_tags( $via_wp ) ) ) {
+				// Still walk nested shortcodes.
+				$via_wp                 = $this->resolve( $via_wp, $context );
+				$this->resolved[ $raw ] = $via_wp;
+				$this->resolved_ids[ $id ] = true;
+				return $via_wp;
+			}
+		}
+
+		// Fallback: load `_elementor_data` for that post ID and render.
+		if ( ! Elementor_Bridge::has_elementor_data( $id ) && ! Elementor_Bridge::is_built_with( $id ) ) {
+			return $raw;
+		}
+
+		$this->elementor->ensure_post_css( $id );
+		foreach ( $this->elementor->nested_template_ids( $id ) as $nested_id ) {
+			$this->elementor->ensure_post_css( $nested_id );
+		}
+
+		$inner = $this->elementor->render( $id, array( 'resolve_shortcodes' => true ) );
+		if ( ! is_string( $inner ) || '' === trim( $inner ) ) {
+			return $raw;
+		}
+
+		$this->resolved[ $raw ]    = $inner;
+		$this->resolved_ids[ $id ] = true;
+		return $inner;
 	}
 
 	/**
@@ -274,7 +388,6 @@ class Shortcode_Resolver {
 			return;
 		}
 
-		// Tree may be a list of sections or a single node.
 		$is_list = array_keys( $nodes ) === range( 0, count( $nodes ) - 1 );
 		if ( $is_list ) {
 			foreach ( $nodes as $child ) {
@@ -301,32 +414,50 @@ class Shortcode_Resolver {
 				if ( $raw && preg_match( '/\[([a-zA-Z0-9_-]+)/', $raw, $m ) ) {
 					$tag = $m[1];
 				}
+				$attrs = $this->attrs_array( $raw );
 				$found[] = array(
-					'tag'      => $tag ? $tag : 'shortcode',
-					'attrs'    => $this->attrs_array( $raw ),
-					'raw'      => $raw,
-					'source'   => 'elementor-shortcode-widget',
-					'resolved' => $tag ? shortcode_exists( $tag ) : false,
+					'tag'        => $tag ? $tag : 'shortcode',
+					'attrs'      => $attrs,
+					'raw'        => $raw,
+					'source'     => 'elementor-shortcode-widget',
+					'templateId' => self::extract_document_id( $attrs ),
+					'resolved'   => $tag ? shortcode_exists( $tag ) : false,
 				);
-			} elseif ( 'template' === $widget_type || 'elementskit-template' === $widget_type ) {
+			} elseif (
+				in_array(
+					$widget_type,
+					array(
+						'template',
+						'elementskit-template',
+						'elementskit_template',
+						'call-to-action', // sometimes linked
+					),
+					true
+				)
+				|| false !== stripos( $widget_type, 'template' )
+			) {
 				$template_id = 0;
-				foreach ( array( 'template_id', 'templateID', 'ekit_template_id', 'select_template' ) as $key ) {
+				foreach ( array_merge( self::ID_ATTR_KEYS, array( 'ekit_template_id', 'select_template', 'template_id' ) ) as $key ) {
 					if ( ! empty( $settings[ $key ] ) && is_numeric( $settings[ $key ] ) ) {
 						$template_id = (int) $settings[ $key ];
 						break;
 					}
 				}
+				// call-to-action may nest a shortcode string.
+				if ( $template_id <= 0 && ! empty( $settings['shortcode'] ) && is_string( $settings['shortcode'] ) ) {
+					$attrs       = $this->attrs_array( $settings['shortcode'] );
+					$template_id = self::extract_document_id( $attrs );
+				}
 				$found[] = array(
 					'tag'        => 'elementor-template',
 					'attrs'      => array( 'id' => $template_id ),
 					'raw'        => $template_id ? sprintf( '[elementor-template id="%d"]', $template_id ) : '',
-					'source'     => 'elementor-template-widget',
+					'source'     => 'elementor-template-widget:' . $widget_type,
 					'templateId' => $template_id,
 					'resolved'   => $template_id > 0,
 				);
 			} else {
-				// Text / HTML widgets may embed shortcodes in string settings.
-				foreach ( array( 'editor', 'html', 'shortcode', 'content' ) as $key ) {
+				foreach ( array( 'editor', 'html', 'shortcode', 'content', 'text', 'description' ) as $key ) {
 					if ( empty( $settings[ $key ] ) || ! is_string( $settings[ $key ] ) ) {
 						continue;
 					}
@@ -362,16 +493,17 @@ class Shortcode_Resolver {
 		}
 		$pattern = get_shortcode_regex();
 		if ( ! $pattern || ! preg_match_all( '/' . $pattern . '/s', $content, $matches, PREG_SET_ORDER ) ) {
-			// Still catch template shortcodes that may be unregistered.
 			foreach ( self::TEMPLATE_SHORTCODE_TAGS as $tag ) {
 				if ( preg_match_all( '/\[' . preg_quote( $tag, '/' ) . '\s[^\]]*\]/i', $content, $ms ) ) {
 					foreach ( $ms[0] as $raw ) {
+						$attrs = $this->attrs_array( $raw );
 						$out[] = array(
-							'tag'      => $tag,
-							'attrs'    => $this->attrs_array( $raw ),
-							'raw'      => $raw,
-							'source'   => $source,
-							'resolved' => shortcode_exists( $tag ),
+							'tag'        => $tag,
+							'attrs'      => $attrs,
+							'raw'        => $raw,
+							'source'     => $source,
+							'templateId' => self::extract_document_id( $attrs ),
+							'resolved'   => shortcode_exists( $tag ),
 						);
 					}
 				}
@@ -382,12 +514,14 @@ class Shortcode_Resolver {
 		foreach ( $matches as $m ) {
 			$tag   = isset( $m[2] ) ? (string) $m[2] : '';
 			$attrs = shortcode_parse_atts( isset( $m[3] ) ? $m[3] : '' );
+			$attrs = is_array( $attrs ) ? $attrs : array();
 			$out[] = array(
-				'tag'      => $tag,
-				'attrs'    => is_array( $attrs ) ? $attrs : array(),
-				'raw'      => isset( $m[0] ) ? (string) $m[0] : '',
-				'source'   => $source,
-				'resolved' => shortcode_exists( $tag ),
+				'tag'        => $tag,
+				'attrs'      => $attrs,
+				'raw'        => isset( $m[0] ) ? (string) $m[0] : '',
+				'source'     => $source,
+				'templateId' => self::extract_document_id( $attrs ),
+				'resolved'   => shortcode_exists( $tag ),
 			);
 		}
 		return $out;

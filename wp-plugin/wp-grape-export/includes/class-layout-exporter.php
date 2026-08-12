@@ -66,6 +66,14 @@ class Layout_Exporter {
 		$header = $this->pick_region( $templates, 'header' );
 		$footer = $this->pick_region( $templates, 'footer' );
 
+		// Prefer Elementor Theme Builder / HFE location meta when scoring failed.
+		if ( ! $header ) {
+			$header = $this->pick_by_location( $templates, 'header' );
+		}
+		if ( ! $footer ) {
+			$footer = $this->pick_by_location( $templates, 'footer' );
+		}
+
 		return array(
 			'header' => $header,
 			'footer' => $footer,
@@ -83,7 +91,7 @@ class Layout_Exporter {
 			return $this->templates;
 		}
 
-		$records   = array();
+		$records    = array();
 		$post_types = array();
 
 		if ( post_type_exists( 'elementor_library' ) ) {
@@ -95,6 +103,13 @@ class Layout_Exporter {
 		if ( post_type_exists( 'elementskit_content' ) ) {
 			$post_types[] = 'elementskit_content';
 		}
+		// Header Footer Elementor (HFE) plugin CPT.
+		if ( post_type_exists( 'elementor-hf' ) ) {
+			$post_types[] = 'elementor-hf';
+		}
+		if ( post_type_exists( 'ehf_template' ) ) {
+			$post_types[] = 'ehf_template';
+		}
 
 		if ( empty( $post_types ) ) {
 			$this->templates = array();
@@ -104,7 +119,7 @@ class Layout_Exporter {
 		$posts = get_posts(
 			array(
 				'post_type'        => $post_types,
-				'post_status'      => array( 'publish', 'draft', 'inherit' ),
+				'post_status'      => array( 'publish', 'draft', 'inherit', 'private' ),
 				'numberposts'      => -1,
 				'suppress_filters' => false,
 			)
@@ -119,7 +134,7 @@ class Layout_Exporter {
 				$this->elementor->ensure_post_css( $nested_id );
 			}
 
-			// Render with shortcode/template expansion so nested embeds are real HTML.
+			$resolver->reset_inventory();
 			$html = $this->elementor->render( $post->ID );
 			$html = $resolver->resolve(
 				$html,
@@ -139,13 +154,19 @@ class Layout_Exporter {
 			}
 
 			$shortcodes = $resolver->collect_from_elementor_data( $data );
+			$location   = $this->elementor->location( $post->ID );
 			$records[]  = array(
 				'id'         => (int) $post->ID,
 				'slug'       => $post->post_name,
 				'title'      => get_the_title( $post ),
 				'type'       => $type,
+				'location'   => $location,
 				'source'     => $post->post_type,
 				'htmlFile'   => $html_file,
+				// Keep HTML on the record for layout.header/footer consumers;
+				// templates/index.json is rewritten without full HTML blobs.
+				'html'       => $html,
+				'htmlBytes'  => strlen( $html ),
 				'dataFile'   => $data_file,
 				'conditions' => $this->conditions( $post ),
 				'shortcodes' => $shortcodes,
@@ -154,6 +175,21 @@ class Layout_Exporter {
 
 		$this->templates = $records;
 		return $this->templates;
+	}
+
+	/**
+	 * Template index rows for disk (omit large inline HTML blobs).
+	 *
+	 * @return array[]
+	 */
+	public function templates_index() {
+		$out = array();
+		foreach ( $this->templates() as $tpl ) {
+			$row = $tpl;
+			unset( $row['html'] );
+			$out[] = $row;
+		}
+		return $out;
 	}
 
 	/**
@@ -190,11 +226,45 @@ class Layout_Exporter {
 		);
 
 		$tpl = $candidates[0]['tpl'];
+		return $this->region_record( $tpl );
+	}
+
+	/**
+	 * Pick a region by Elementor `_elementor_location` / HFE meta.
+	 *
+	 * @param array[] $templates Templates.
+	 * @param string  $type      header|footer.
+	 * @return array|null
+	 */
+	private function pick_by_location( $templates, $type ) {
+		foreach ( $templates as $tpl ) {
+			$loc = isset( $tpl['location'] ) ? strtolower( (string) $tpl['location'] ) : '';
+			if ( $loc === $type ) {
+				return $this->region_record( $tpl );
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Build the layout.json region payload (includes inline HTML for consumers).
+	 *
+	 * @param array $tpl Template record.
+	 * @return array
+	 */
+	private function region_record( array $tpl ) {
+		$html = isset( $tpl['html'] ) ? (string) $tpl['html'] : '';
+		if ( '' === trim( $html ) && ! empty( $tpl['htmlFile'] ) ) {
+			// Already written to the bundle; keep path reference.
+			$html = '';
+		}
 		return array(
 			'source'     => $tpl['source'],
 			'postId'     => $tpl['id'],
 			'title'      => $tpl['title'],
+			'slug'       => isset( $tpl['slug'] ) ? $tpl['slug'] : '',
 			'htmlFile'   => $tpl['htmlFile'],
+			'html'       => $html,
 			'dataFile'   => $tpl['dataFile'],
 			'assignedTo' => $tpl['conditions'] ? $tpl['conditions'] : array( 'all' ),
 		);
@@ -211,7 +281,12 @@ class Layout_Exporter {
 		$slug  = strtolower( (string) ( $tpl['slug'] ?? '' ) );
 		$title = strtolower( (string) ( $tpl['title'] ?? '' ) );
 		$ttype = strtolower( (string) ( $tpl['type'] ?? '' ) );
+		$loc   = strtolower( (string) ( $tpl['location'] ?? '' ) );
 		$src   = (string) ( $tpl['source'] ?? '' );
+
+		if ( $loc === $type ) {
+			return 110;
+		}
 
 		if ( $ttype === $type ) {
 			return 100;
@@ -230,7 +305,7 @@ class Layout_Exporter {
 
 		// Elementor library sections literally named Header / Footer.
 		if ( $slug === $type || $title === $type ) {
-			return ( 'elementskit_template' === $src ) ? 80 : 70;
+			return ( 'elementskit_template' === $src || 'elementor-hf' === $src ) ? 80 : 70;
 		}
 
 		if ( 0 === strpos( $slug, $type ) || 0 === strpos( $title, $type ) ) {
@@ -247,6 +322,12 @@ class Layout_Exporter {
 	 * @return string
 	 */
 	private function template_type( $post ) {
+		// Theme Builder / HFE location wins.
+		$location = $this->elementor->location( $post->ID );
+		if ( in_array( $location, array( 'header', 'footer' ), true ) ) {
+			return $location;
+		}
+
 		// Elementor library stores it directly.
 		$meta = get_post_meta( $post->ID, '_elementor_template_type', true );
 		if ( $meta && ! in_array( $meta, array( 'wp-post', 'section', 'page' ), true ) ) {
@@ -266,8 +347,8 @@ class Layout_Exporter {
 			}
 		}
 
-		// ElementsKit meta fallbacks.
-		foreach ( array( '_ekit_template_type', 'ekit_template_type' ) as $key ) {
+		// ElementsKit / HFE meta fallbacks.
+		foreach ( array( '_ekit_template_type', 'ekit_template_type', 'ehf_template_type', '_ehf_template_type' ) as $key ) {
 			$val = get_post_meta( $post->ID, $key, true );
 			if ( $val ) {
 				$norm = $this->normalize_type( $val );
@@ -288,7 +369,7 @@ class Layout_Exporter {
 		}
 
 		// Last resort: sniff rendered markup for ElementsKit region classes.
-		$html = $this->elementor->render( $post->ID );
+		$html = $this->elementor->render( $post->ID, array( 'resolve_shortcodes' => false ) );
 		if ( false !== stripos( $html, 'ekit-template-content-header' ) ) {
 			return 'header';
 		}

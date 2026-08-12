@@ -1,3 +1,7 @@
+import DarkVeil from "./DarkVeil";
+import { StudioLogo } from "./StudioLogo";
+import { useScrolled } from "../hooks/useScrolled";
+
 interface Props {
   onLogin: () => void;
   onRegister: () => void;
@@ -67,14 +71,14 @@ export function LandingPage({
   isDark,
 }: Props) {
   const primary = () => (isAuthed ? onDashboard() : onRegister());
+  const navScrolled = useScrolled(12);
 
   return (
     <div className="lp">
-      <header className="lp-nav">
+      <header className={`lp-nav${navScrolled ? " is-scrolled" : ""}`}>
         <div className="lp-wrap lp-nav-inner">
           <a className="lp-logo" href="#/" aria-label="Migration Studio home">
-            <span className="lp-logo-mark" aria-hidden="true" />
-            <span className="lp-logo-text">Migration Studio</span>
+            <StudioLogo size={28} withWordmark />
           </a>
 
           <nav className="lp-nav-links" aria-label="Primary">
@@ -113,6 +117,18 @@ export function LandingPage({
 
       {/* Hero */}
       <section className="lp-hero">
+        <div className="lp-hero-veil" aria-hidden="true">
+          <DarkVeil
+            hueShift={210}
+            noiseIntensity={0.02}
+            scanlineIntensity={0.08}
+            speed={0.45}
+            scanlineFrequency={0.5}
+            warpAmount={0.35}
+            resolutionScale={1}
+          />
+        </div>
+        <div className="lp-hero-veil-fade" aria-hidden="true" />
         <div className="lp-wrap lp-hero-inner">
           <p className="lp-eyebrow">WordPress → GrapeJS</p>
           <h1 className="lp-hero-title">Migration Studio</h1>
@@ -299,8 +315,7 @@ export function LandingPage({
       <footer className="lp-footer">
         <div className="lp-wrap lp-footer-inner">
           <div className="lp-footer-brand">
-            <span className="lp-logo-mark" aria-hidden="true" />
-            <span>Migration Studio</span>
+            <StudioLogo size={24} withWordmark />
           </div>
           <nav className="lp-footer-links" aria-label="Footer">
             <button type="button" className="lp-footer-link-btn" onClick={() => scrollToId("product")}>

@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { forgotPassword, resetAccountPassword } from "../auth-api";
 import { useAuth } from "../hooks/useAuth";
+import { PasswordField } from "./PasswordField";
+import { StudioLogo } from "./StudioLogo";
 
 interface ForgotProps {
   onBack: () => void;
@@ -112,32 +114,33 @@ export function ResetPasswordPage({ token, onDone, onBack }: ResetProps) {
         ← Back
       </button>
       <div className="auth-card auth-card-narrow">
-        <h1>Choose a new password</h1>
-        <p className="muted">Use at least 8 characters.</p>
+        <div className="auth-brand">
+          <StudioLogo size={36} />
+          <div>
+            <h1>Choose a new password</h1>
+            <p className="muted">Use at least 8 characters.</p>
+          </div>
+        </div>
         <form className="auth-form" onSubmit={submit}>
           {error && <div className="alert alert-error">{error}</div>}
-          <label>
-            New password
-            <input
-              type="password"
-              autoComplete="new-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              minLength={8}
-            />
-          </label>
-          <label>
-            Confirm password
-            <input
-              type="password"
-              autoComplete="new-password"
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              required
-              minLength={8}
-            />
-          </label>
+          <PasswordField
+            label="New password"
+            value={password}
+            onChange={setPassword}
+            autoComplete="new-password"
+            minLength={8}
+            placeholder="At least 8 characters"
+            disabled={busy}
+          />
+          <PasswordField
+            label="Confirm password"
+            value={confirm}
+            onChange={setConfirm}
+            autoComplete="new-password"
+            minLength={8}
+            placeholder="Re-enter password"
+            disabled={busy}
+          />
           <button type="submit" className="btn btn-primary btn-block" disabled={busy}>
             {busy ? "Saving…" : "Update password"}
           </button>

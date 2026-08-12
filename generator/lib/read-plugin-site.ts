@@ -8,6 +8,29 @@ import type {
 } from "../../lib/wp/types";
 import { readAssetManifest, resolveCanvasScripts, resolveSiteStyles } from "./asset-manifest";
 import { collectCanvasStyles } from "./grape-prep";
+import { convertElementorDocument, type ElementorNode, type GrapeBlock } from "./elementor-to-grape";
+
+/**
+ * Prefer public/sites/{slug}; if missing (common when data dir is a junction to
+ * another slug), resolve the real data-dir slug and use that public folder.
+ */
+function resolveAssetsSourceDir(slug: string): string {
+  const primary = getMigratedPublicDir(slug);
+  if (fs.existsSync(primary)) return primary;
+  try {
+    const dataDir = getMigratedDataDir(slug);
+    if (!fs.existsSync(dataDir)) return primary;
+    const realData = fs.realpathSync(dataDir);
+    const realSlug = path.basename(path.dirname(realData));
+    if (realSlug && realSlug !== slug) {
+      const alt = getMigratedPublicDir(realSlug);
+      if (fs.existsSync(alt)) return alt;
+    }
+  } catch {
+    /* keep primary */
+  }
+  return primary;
+}
 
 export interface PluginSitePage {
   key: string;
@@ -27,6 +50,9 @@ export interface PluginSite {
   exportFingerprint: string;
   headerHtml: string;
   footerHtml: string;
+  /** Elementor→blocks when rendered header/footer HTML is empty. */
+  headerBlocks?: GrapeBlock[];
+  footerBlocks?: GrapeBlock[];
   menus: PluginExportMenu[];
   pages: PluginSitePage[];
   /** Site-wide stylesheet hrefs for shell + GrapeJS canvas. */
@@ -70,7 +96,7 @@ export function readPluginSite(slug: string): PluginSite {
     manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as MigrationManifest;
   }
 
-  const assetsSourceDir = getMigratedPublicDir(slug);
+  const assetsSourceDir = resolveAssetsSourceDir(slug);
   const assetManifest = readAssetManifest(dataDir);
   const globalStyles = assetManifest
     ? resolveSiteStyles(assetManifest, assetsSourceDir)
@@ -109,12 +135,12 @@ export function readPluginSite(slug: string): PluginSite {
   const exportFingerprint =
     manifest?.pluginExport?.exportedAt ?? manifest?.migratedAt ?? slug;
 
-  const headerHtml =
-    layout.header?.html?.trim() ||
-    resolveRegionHtmlFromTemplates(dataDir, "header");
-  const footerHtml =
-    layout.footer?.html?.trim() ||
-    resolveRegionHtmlFromTemplates(dataDir, "footer");
+  const menus = layout.menus ?? [];
+  const headerRegion = resolveRegionFromTemplates(dataDir, "header", menus);
+  const footerRegion = resolveRegionFromTemplates(dataDir, "footer", menus);
+
+  const headerHtml = layout.header?.html?.trim() || headerRegion.html;
+  const footerHtml = layout.footer?.html?.trim() || footerRegion.html;
 
   return {
     slug,
@@ -123,7 +149,9 @@ export function readPluginSite(slug: string): PluginSite {
     exportFingerprint,
     headerHtml,
     footerHtml,
-    menus: layout.menus ?? [],
+    headerBlocks: headerHtml ? undefined : headerRegion.blocks,
+    footerBlocks: footerHtml ? undefined : footerRegion.blocks,
+    menus,
     pages,
     globalStyles,
     globalScripts,
@@ -131,15 +159,27 @@ export function readPluginSite(slug: string): PluginSite {
   };
 }
 
-/**
- * Recover header/footer when the exporter mistyped ElementsKit templates as
- * wp-post/section. Prefer slug "header-all" / "footer-all", then "header"/"footer".
- */
-function resolveRegionHtmlFromTemplates(dataDir: string, region: "header" | "footer"): string {
-  const indexPath = path.join(dataDir, "templates", "index.json");
-  if (!fs.existsSync(indexPath)) return "";
+type MenuLike = { slug?: string; items?: Array<{ title: string; url: string; parentId?: number }> };
 
-  type Tpl = { slug?: string; title?: string; type?: string; htmlFile?: string };
+/**
+ * Recover header/footer when the exporter left rendered HTML empty.
+ * Prefer HTML files; fall back to converting Elementor template JSON → Grape blocks.
+ */
+function resolveRegionFromTemplates(
+  dataDir: string,
+  region: "header" | "footer",
+  menus: MenuLike[],
+): { html: string; blocks?: GrapeBlock[] } {
+  const indexPath = path.join(dataDir, "templates", "index.json");
+  if (!fs.existsSync(indexPath)) return { html: "" };
+
+  type Tpl = {
+    slug?: string;
+    title?: string;
+    type?: string;
+    htmlFile?: string;
+    dataFile?: string;
+  };
   const templates = JSON.parse(fs.readFileSync(indexPath, "utf8")) as Tpl[];
 
   const score = (tpl: Tpl): number => {
@@ -150,6 +190,7 @@ function resolveRegionHtmlFromTemplates(dataDir: string, region: "header" | "foo
     if (slug === `${region}-all` || title === `${region}-all`) return 90;
     if (slug === region || title === region) return 70;
     if (slug.startsWith(region) || title.startsWith(region)) return 50;
+    if (title.includes(region)) return 40;
     return 0;
   };
 
@@ -159,14 +200,81 @@ function resolveRegionHtmlFromTemplates(dataDir: string, region: "header" | "foo
     .sort((a, b) => b.score - a.score);
 
   for (const { tpl } of ranked) {
-    if (!tpl.htmlFile) continue;
-    const abs = path.join(dataDir, tpl.htmlFile);
-    if (fs.existsSync(abs)) {
-      const html = fs.readFileSync(abs, "utf8").trim();
-      if (html) return html;
+    if (tpl.htmlFile) {
+      const abs = path.join(dataDir, tpl.htmlFile);
+      if (fs.existsSync(abs)) {
+        const html = fs.readFileSync(abs, "utf8").trim();
+        if (html) return { html };
+      }
     }
   }
-  return "";
+
+  for (const { tpl } of ranked) {
+    if (!tpl.dataFile) continue;
+    const abs = path.join(dataDir, tpl.dataFile);
+    if (!fs.existsSync(abs)) continue;
+    try {
+      const tree = JSON.parse(fs.readFileSync(abs, "utf8")) as ElementorNode[];
+      if (!Array.isArray(tree) || tree.length === 0) continue;
+      const blocks = convertElementorDocument(tree, {
+        resolveTemplate: (id) => resolveTemplateDocument(dataDir, id),
+        resolveMenu: (slug) => {
+          const menu = menus.find((m) => m.slug === slug);
+          return menu?.items ?? null;
+        },
+      });
+      if (blocks.length > 0) return { html: "", blocks };
+    } catch {
+      /* try next */
+    }
+  }
+  return { html: "" };
+}
+
+function resolveTemplateDocument(dataDir: string, templateId: string): ElementorNode[] | null {
+  const templatesDir = path.join(dataDir, "templates");
+  if (!fs.existsSync(templatesDir)) return null;
+  const match = fs
+    .readdirSync(templatesDir)
+    .find((f) => f.startsWith(`${templateId}-`) && f.endsWith(".json"));
+  if (!match) return null;
+  try {
+    const tree = JSON.parse(fs.readFileSync(path.join(templatesDir, match), "utf8")) as ElementorNode[];
+    return Array.isArray(tree) ? tree : null;
+  } catch {
+    return null;
+  }
+}
+
+/** @deprecated kept for callers; prefer resolveRegionFromTemplates */
+function resolveRegionHtmlFromTemplates(dataDir: string, region: "header" | "footer"): string {
+  return resolveRegionFromTemplates(dataDir, region, []).html;
+}
+
+interface PageAssetProfile {
+  styles?: string[];
+  scripts?: string[];
+  widgets?: string[];
+  animations?: string[];
+  plugins?: string[];
+  postCss?: string | null;
+}
+
+function hrefIfAssetExists(projectAssetsRoot: string, relOrHref: string): string | null {
+  const raw = relOrHref.replace(/^\/assets\//, "").replace(/^\/+/, "");
+  const rels = raw.startsWith("wp-content/")
+    ? [raw, raw.replace(/^wp-content\//, "")]
+    : raw.startsWith("inline/")
+      ? [raw]
+      : [`wp-content/${raw}`, raw, `wp-content/uploads/${raw}`];
+
+  for (const rel of rels) {
+    const abs = path.join(projectAssetsRoot, rel);
+    if (fs.existsSync(abs) && fs.statSync(abs).size > 0) {
+      return `/assets/${rel.replace(/\\/g, "/")}`;
+    }
+  }
+  return null;
 }
 
 /** Per-page canvas assets: per-page export profile + global manifest + Elementor post CSS. */
@@ -178,21 +286,26 @@ export function pageCanvasAssets(
   const diskStyles = collectCanvasStyles(projectAssetsRoot, page.postId);
   const pageProfile = readPageAssetProfile(site.slug, page.key);
 
-  const profileStyles = pageProfile?.styles?.map((rel) => `/assets/wp-content/${rel}`) ?? [];
-  const profileScripts = pageProfile?.scripts?.map((rel) => `/assets/wp-content/${rel}`) ?? [];
+  const profileStyles: string[] = [];
+  for (const rel of pageProfile?.styles ?? []) {
+    const href = hrefIfAssetExists(projectAssetsRoot, rel);
+    if (href) profileStyles.push(href);
+  }
+  if (pageProfile?.postCss) {
+    const href = hrefIfAssetExists(projectAssetsRoot, pageProfile.postCss);
+    if (href) profileStyles.push(href);
+  }
+
+  const profileScripts: string[] = [];
+  for (const rel of pageProfile?.scripts ?? []) {
+    const href = hrefIfAssetExists(projectAssetsRoot, rel);
+    if (href) profileScripts.push(href);
+  }
 
   return {
     styles: [...new Set([...diskStyles, ...profileStyles, ...site.globalStyles])],
     scripts: [...new Set([...site.globalScripts, ...profileScripts])],
   };
-}
-
-interface PageAssetProfile {
-  styles?: string[];
-  scripts?: string[];
-  widgets?: string[];
-  animations?: string[];
-  plugins?: string[];
 }
 
 function readPageAssetProfile(slug: string, pageKey: string): PageAssetProfile | null {

@@ -83,9 +83,10 @@ class Export_Job {
 
 		// Templates library (elementor_library / elementskit_template).
 		$templates = $layout_exporter->templates();
+		$templates_index = $layout_exporter->templates_index();
 
-		// Pages.
-		$page_exporter = new Page_Exporter( $writer, $site['pageBuilder'] );
+		// Pages (stamp header/footer template IDs from layout onto each page meta).
+		$page_exporter = new Page_Exporter( $writer, $site['pageBuilder'], $layout );
 		$route_records = array();
 		foreach ( $routes as $route ) {
 			$result = $page_exporter->export_route( $route );
@@ -94,6 +95,30 @@ class Export_Job {
 			}
 		}
 		$audit = $page_exporter->audit();
+
+		// Persist any CTA / nested documents resolved from postmeta that were
+		// not already in the template library index.
+		$known_tpl_ids = array();
+		foreach ( $templates as $tpl ) {
+			if ( isset( $tpl['id'] ) ) {
+				$known_tpl_ids[ (int) $tpl['id'] ] = true;
+			}
+		}
+		foreach ( $audit['resolvedDocumentIds'] as $doc_id ) {
+			$doc_id = (int) $doc_id;
+			if ( $doc_id <= 0 || isset( $known_tpl_ids[ $doc_id ] ) ) {
+				continue;
+			}
+			$extra = $this->export_orphan_document( $writer, $doc_id );
+			if ( $extra ) {
+				$templates[]              = $extra;
+				$index_row                = $extra;
+				unset( $index_row['html'] );
+				$templates_index[]        = $index_row;
+				$known_tpl_ids[ $doc_id ] = true;
+			}
+		}
+		$writer->write_json( 'templates/index.json', $templates_index );
 
 		$post_ids = array();
 		foreach ( $route_records as $route ) {
@@ -111,6 +136,9 @@ class Export_Job {
 			if ( isset( $tpl['id'] ) ) {
 				$post_ids[] = (int) $tpl['id'];
 			}
+		}
+		foreach ( $audit['resolvedDocumentIds'] as $rid ) {
+			$post_ids[] = (int) $rid;
 		}
 		$post_ids = array_values( array_unique( array_filter( $post_ids ) ) );
 
@@ -145,7 +173,7 @@ class Export_Job {
 		$writer->write_json( 'site.json', $site );
 		$writer->write_json( 'layout.json', $layout );
 		$writer->write_json( 'routes.json', $route_records );
-		$writer->write_json( 'templates/index.json', $templates );
+		$writer->write_json( 'templates/index.json', $templates_index );
 		$writer->write_json( 'assets/manifest.json', $assets );
 		$writer->write_json( 'media/map.json', $media );
 		$writer->write_json(
@@ -217,6 +245,64 @@ class Export_Job {
 			'zip'   => $zip_path,
 			'url'   => $zip_url,
 			'stats' => $manifest['counts'],
+		);
+	}
+
+	/**
+	 * Export a nested CTA / section document that was only referenced by shortcode ID.
+	 *
+	 * @param Bundle_Writer $writer  Bundle writer.
+	 * @param int           $post_id Document post ID.
+	 * @return array|null Template record.
+	 */
+	private function export_orphan_document( Bundle_Writer $writer, $post_id ) {
+		$post_id = (int) $post_id;
+		$post    = get_post( $post_id );
+		if ( ! $post || ! Elementor_Bridge::has_elementor_data( $post_id ) ) {
+			return null;
+		}
+
+		$bridge = new Elementor_Bridge();
+		$bridge->ensure_post_css( $post_id );
+		foreach ( $bridge->nested_template_ids( $post_id ) as $nested_id ) {
+			$bridge->ensure_post_css( $nested_id );
+		}
+
+		$type = $bridge->document_type( $post_id );
+		$type = $type ? sanitize_title( $type ) : 'section';
+		$resolver = new Shortcode_Resolver( $bridge );
+		$html     = $bridge->render( $post_id );
+		$html     = $resolver->resolve(
+			$html,
+			array(
+				'postId' => $post_id,
+				'path'   => 'template:' . $post->post_name,
+			)
+		);
+		$data = $bridge->data( $post_id );
+
+		$html_file = 'templates/' . $post_id . '-' . $type . '.html';
+		$writer->write( $html_file, $html );
+
+		$data_file = null;
+		if ( $data ) {
+			$data_file = 'templates/' . $post_id . '-' . $type . '.json';
+			$writer->write_json( $data_file, $data );
+		}
+
+		return array(
+			'id'         => $post_id,
+			'slug'       => $post->post_name,
+			'title'      => get_the_title( $post ),
+			'type'       => $type,
+			'location'   => $bridge->location( $post_id ),
+			'source'     => $post->post_type,
+			'htmlFile'   => $html_file,
+			'html'       => $html,
+			'dataFile'   => $data_file,
+			'conditions' => array(),
+			'shortcodes' => $resolver->collect_from_elementor_data( $data ),
+			'orphan'     => true,
 		);
 	}
 

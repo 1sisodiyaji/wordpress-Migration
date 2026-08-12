@@ -63,7 +63,13 @@ export function NewProjectPanel({ onClose, onCreate }: Props) {
       }
 
       const fallbackName =
-        tab === "url" ? url : tab === "plugin" && pluginMode === "pull" ? wpUrl : "Imported site";
+        tab === "url"
+          ? url
+          : tab === "plugin" && pluginMode === "pull"
+            ? wpUrl
+            : tab === "plugin" && pluginZip
+              ? pluginZip.name.replace(/\.zip$/i, "")
+              : "New project";
 
       await onCreate({
         name: name.trim() || fallbackName,
@@ -114,18 +120,25 @@ export function NewProjectPanel({ onClose, onCreate }: Props) {
         <form onSubmit={submit} className="modal-body">
           <label>
             Project name
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="My website" />
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="My website"
+              autoComplete="off"
+            />
           </label>
 
           {tab === "url" && (
             <label>
               Website URL
               <input
+                type="url"
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 placeholder="https://example.com"
-                type="url"
                 required
+                autoComplete="url"
               />
             </label>
           )}
@@ -171,21 +184,29 @@ export function NewProjectPanel({ onClose, onCreate }: Props) {
                   <label>
                     WordPress URL
                     <input
+                      type="url"
                       value={wpUrl}
                       onChange={(e) => setWpUrl(e.target.value)}
                       placeholder="http://localhost:8082"
-                      type="url"
+                      autoComplete="url"
                     />
                   </label>
                   <label>
                     Admin username
-                    <input value={wpUser} onChange={(e) => setWpUser(e.target.value)} placeholder="admin" />
+                    <input
+                      type="text"
+                      value={wpUser}
+                      onChange={(e) => setWpUser(e.target.value)}
+                      placeholder="admin"
+                      autoComplete="username"
+                    />
                   </label>
                   <label>
                     {/localhost|127\.0\.0\.1/i.test(wpUrl)
                       ? "Password (wp-admin)"
                       : "Application Password"}
                     <input
+                      type="password"
                       value={appPassword}
                       onChange={(e) => setAppPassword(e.target.value)}
                       placeholder={
@@ -193,7 +214,6 @@ export function NewProjectPanel({ onClose, onCreate }: Props) {
                           ? "Normal wp-admin password"
                           : "xxxx xxxx xxxx xxxx xxxx xxxx"
                       }
-                      type="password"
                       autoComplete="off"
                     />
                   </label>

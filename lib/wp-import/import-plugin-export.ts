@@ -192,6 +192,25 @@ function landBundle(
       }
     }
 
+    // Per-page asset profile + shortcode audit (needed for plugin/page CSS on canvas).
+    const pageExtras = [
+      meta?.assetsFile,
+      meta && "shortcodesFile" in meta
+        ? String((meta as { shortcodesFile?: string }).shortcodesFile ?? "")
+        : "",
+      `${dir}/assets.json`,
+      `${dir}/shortcodes.json`,
+    ].filter(Boolean) as string[];
+    const writtenExtras = new Set<string>();
+    for (const rel of pageExtras) {
+      const base = path.basename(rel);
+      if (writtenExtras.has(base)) continue;
+      const content = bundle.readText(rel);
+      if (!content) continue;
+      writeText(path.join(dataDir, "pages", key, base), content);
+      writtenExtras.add(base);
+    }
+
     // v1-compatible: full composed page for the current generator/preview.
     const composed = wrapDocument(`${headerHtml}\n${content}\n${footerHtml}`);
     writeText(path.join(pagesDir, `${key}.html`), composed);

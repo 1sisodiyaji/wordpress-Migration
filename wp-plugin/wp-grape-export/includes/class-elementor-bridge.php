@@ -14,6 +14,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 /**
  * Wraps Elementor's frontend renderer so pages/templates can be exported
  * as fully rendered HTML plus their raw _elementor_data tree.
+ *
+ * Always prefers `_elementor_data` from postmeta — that is the source of truth
+ * for Elementor documents (pages, Theme Builder headers/footers, CTAs, sections).
  */
 class Elementor_Bridge {
 
@@ -40,7 +43,31 @@ class Elementor_Bridge {
 	 * @return bool
 	 */
 	public static function is_built_with( $post_id ) {
-		return get_post_meta( $post_id, '_elementor_edit_mode', true ) === 'builder';
+		$post_id = (int) $post_id;
+		if ( ! $post_id ) {
+			return false;
+		}
+		if ( get_post_meta( $post_id, '_elementor_edit_mode', true ) === 'builder' ) {
+			return true;
+		}
+		// Some library items only have raw data without edit_mode set.
+		$data = get_post_meta( $post_id, '_elementor_data', true );
+		return ! empty( $data );
+	}
+
+	/**
+	 * Whether a post has Elementor JSON in postmeta (even if not marked builder).
+	 *
+	 * @param int $post_id Post ID.
+	 * @return bool
+	 */
+	public static function has_elementor_data( $post_id ) {
+		$post_id = (int) $post_id;
+		if ( ! $post_id ) {
+			return false;
+		}
+		$raw = get_post_meta( $post_id, '_elementor_data', true );
+		return ! empty( $raw );
 	}
 
 	/**
@@ -86,10 +113,25 @@ class Elementor_Bridge {
 			}
 
 			$plugin = \Elementor\Plugin::$instance;
-			if ( $plugin && isset( $plugin->frontend ) && method_exists( $plugin->frontend, 'get_builder_content_for_display' ) ) {
-				// with_css = true so the per-post CSS is registered/enqueued.
-				$rendered = $plugin->frontend->get_builder_content_for_display( $post_id, true );
-				$html     = is_string( $rendered ) ? $rendered : '';
+
+			// Preferred: document API (works for Theme Builder header/footer + library CTAs).
+			if ( $plugin && isset( $plugin->documents ) && method_exists( $plugin->documents, 'get' ) ) {
+				$document = $plugin->documents->get( $post_id );
+				if ( $document && method_exists( $document, 'get_content' ) ) {
+					$rendered = $document->get_content( true );
+					$html     = is_string( $rendered ) ? $rendered : '';
+				}
+			}
+
+			// Fallback: frontend builder content (pages / some templates).
+			if ( '' === trim( $html ) && $plugin && isset( $plugin->frontend ) ) {
+				if ( method_exists( $plugin->frontend, 'get_builder_content_for_display' ) ) {
+					$rendered = $plugin->frontend->get_builder_content_for_display( $post_id, true );
+					$html     = is_string( $rendered ) ? $rendered : '';
+				} elseif ( method_exists( $plugin->frontend, 'get_builder_content' ) ) {
+					$rendered = $plugin->frontend->get_builder_content( $post_id, true );
+					$html     = is_string( $rendered ) ? $rendered : '';
+				}
 			}
 
 			if ( $opts['resolve_shortcodes'] && '' !== $html && false !== strpos( $html, '[' ) ) {
@@ -163,7 +205,33 @@ class Elementor_Bridge {
 	 * @return string
 	 */
 	public function document_type( $post_id ) {
-		return (string) get_post_meta( $post_id, '_elementor_template_type', true );
+		$type = (string) get_post_meta( $post_id, '_elementor_template_type', true );
+		if ( $type ) {
+			return $type;
+		}
+		// Elementor Pro Theme Builder location (header/footer/single/…).
+		$location = (string) get_post_meta( $post_id, '_elementor_location', true );
+		return $location ? $location : '';
+	}
+
+	/**
+	 * Theme Builder / HFE location for a post (header, footer, …).
+	 *
+	 * @param int $post_id Post ID.
+	 * @return string
+	 */
+	public function location( $post_id ) {
+		foreach ( array( '_elementor_location', 'ehf_template_type', '_ehf_template_type' ) as $key ) {
+			$val = get_post_meta( $post_id, $key, true );
+			if ( is_string( $val ) && '' !== $val ) {
+				return strtolower( $val );
+			}
+		}
+		$type = strtolower( $this->document_type( $post_id ) );
+		if ( in_array( $type, array( 'header', 'footer' ), true ) ) {
+			return $type;
+		}
+		return '';
 	}
 
 	/**
@@ -180,7 +248,7 @@ class Elementor_Bridge {
 		$resolver = new Shortcode_Resolver( $this );
 		$found    = $resolver->collect_from_elementor_data( $tree );
 		$ids      = array();
-			foreach ( $found as $row ) {
+		foreach ( $found as $row ) {
 			if ( ! empty( $row['templateId'] ) ) {
 				$ids[] = (int) $row['templateId'];
 				continue;
@@ -192,15 +260,16 @@ class Elementor_Bridge {
 			if ( ! is_array( $attrs ) ) {
 				continue;
 			}
-			$id = 0;
-			if ( ! empty( $attrs['id'] ) && is_numeric( $attrs['id'] ) ) {
-				$id = (int) $attrs['id'];
-			}
+			$id = Shortcode_Resolver::extract_document_id( $attrs );
 			if ( $id <= 0 ) {
 				continue;
 			}
 			$tag = isset( $row['tag'] ) ? (string) $row['tag'] : '';
-			if ( in_array( $tag, Shortcode_Resolver::TEMPLATE_SHORTCODE_TAGS, true ) ) {
+			if (
+				in_array( $tag, Shortcode_Resolver::TEMPLATE_SHORTCODE_TAGS, true )
+				|| ! empty( $row['templateId'] )
+				|| self::has_elementor_data( $id )
+			) {
 				$ids[] = $id;
 			}
 		}
@@ -215,7 +284,7 @@ class Elementor_Bridge {
 	 */
 	public function ensure_post_css( $post_id ) {
 		$post_id = (int) $post_id;
-		if ( ! $post_id || ! self::available() || ! self::is_built_with( $post_id ) ) {
+		if ( ! $post_id || ! self::available() || ! self::has_elementor_data( $post_id ) ) {
 			return false;
 		}
 
@@ -230,7 +299,6 @@ class Elementor_Bridge {
 					$post_css->enqueue();
 				}
 			} else {
-				// Fallback: rendering with_css=true triggers CSS registration.
 				$this->render( $post_id, array( 'resolve_shortcodes' => false ) );
 			}
 		} catch ( \Throwable $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement

@@ -21,6 +21,14 @@ export function rewriteAssetUrls(html: string): string {
 export const ELEMENTOR_PREVIEW_STYLE_HREF = "/assets/inline/styles/elementor-preview.css";
 /** Makes Elementor kit CSS variables resolve inside the GrapeJS iframe (no WP body class). */
 export const ELEMENTOR_KIT_VARS_STYLE_HREF = "/assets/inline/styles/elementor-kit-vars.css";
+/** Canvas font stack + local/remote font stylesheet imports. */
+export const SITE_FONTS_STYLE_HREF = "/assets/inline/styles/site-fonts.css";
+
+/** Remote stylesheets the WP export often omits (fonts / Font Awesome). */
+export const CANVAS_REMOTE_STYLES: string[] = [
+  "https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap",
+  "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css",
+];
 
 const ELEMENTOR_PREVIEW_STYLE_CONTENT = `/* Elementor marks animated widgets invisible until JS runs — show them in GrapeJS preview */
 .elementor-invisible {
@@ -143,26 +151,102 @@ export function writeElementorKitVarsStyle(
 
   const out = path.join(projectAssetsDir, "inline", "styles", "elementor-kit-vars.css");
   fs.mkdirSync(path.dirname(out), { recursive: true });
-  const content =
+  let content =
     `/* Elementor kit globals for GrapeJS canvas (WP applies .elementor-kit-N on body) */\n` +
     (varBlocks.length
       ? `${varBlocks.join("\n")}\n`
       : `:root, body {\n  --e-global-color-primary: #000000;\n  --e-global-color-secondary: #54595F;\n  --e-global-color-text: #7A7A7A;\n  --e-global-color-accent: #FDCC4B;\n}\n`);
+  // Kit declares Google Sans; canvas loads Manrope (licensed CDN face).
+  content = content.replace(/"Google Sans"/gi, '"Manrope", "Google Sans"');
   fs.writeFileSync(out, content, "utf8");
   return kitClasses;
 }
 
+/**
+ * Write site font + plugin CSS glue so typography matches the live WP site.
+ * Pulls Astra local fonts + ElementsKit Pro styles when wordpressUrl is known.
+ */
+export function writeSiteFontsStyle(
+  projectAssetsDir: string,
+  opts?: { wordpressUrl?: string },
+): string {
+  const origin = (opts?.wordpressUrl ?? "https://radius-ois.ai").replace(/\/$/, "");
+  const pluginImports: string[] = [];
+
+  const remoteCss = [
+    `${origin}/wp-content/astra-local-fonts/astra-local-fonts.css`,
+    `${origin}/wp-content/plugins/elementskit/widgets/init/assets/css/widget-styles-pro.css`,
+  ];
+
+  for (const url of remoteCss) {
+    try {
+      const name = url.includes("astra-local-fonts")
+        ? "astra-local-fonts.css"
+        : "elementskit-widget-styles-pro.css";
+      const dest = path.join(projectAssetsDir, "inline", "styles", name);
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      if (!fs.existsSync(dest) || fs.statSync(dest).size === 0) {
+        execFileSync("curl", ["-fsSL", "--max-time", "25", "-o", dest, url], { stdio: "ignore" });
+      }
+      if (fs.existsSync(dest) && fs.statSync(dest).size > 0) {
+        // Keep absolute origin URLs inside astra font-face (font files stay on WP).
+        let css = fs.readFileSync(dest, "utf8");
+        css = css.replace(/url\(\s*['"]?(?!https?:|data:)([^'")]+)['"]?\s*\)/gi, (_full, rel: string) => {
+          const cleaned = rel.replace(/^\.\//, "").replace(/^\//, "");
+          if (url.includes("astra-local-fonts")) {
+            return `url("${origin}/wp-content/astra-local-fonts/${cleaned}")`;
+          }
+          return `url("${origin}/wp-content/plugins/elementskit/widgets/init/assets/css/${cleaned}")`;
+        });
+        fs.writeFileSync(dest, css, "utf8");
+        pluginImports.push(`@import url("/assets/inline/styles/${name}");`);
+      }
+    } catch {
+      /* offline — still emit Manrope remote import below */
+    }
+  }
+
+  const out = path.join(projectAssetsDir, "inline", "styles", "site-fonts.css");
+  fs.mkdirSync(path.dirname(out), { recursive: true });
+  const css = `/* Site fonts + missing plugin stylesheets for GrapeJS canvas */
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap");
+${pluginImports.join("\n")}
+
+:root, body {
+  --e-canvas-font: "Manrope", "Google Sans", system-ui, sans-serif;
+  font-family: var(--e-canvas-font);
+}
+
+h1, h2, h3, h4, h5, h6,
+[data-widget="heading"],
+[data-widget="text-editor"],
+[data-widget="elementskit-button"],
+[data-widget="elementskit-funfact"],
+[data-widget="ekit-nav-menu"],
+[data-widget="nav-menu"] {
+  font-family: var(--e-canvas-font);
+}
+`;
+  fs.writeFileSync(out, css, "utf8");
+  return SITE_FONTS_STYLE_HREF;
+}
+
 export function withElementorPreviewStyle(styles: string[]): string[] {
+  const remote = new Set(CANVAS_REMOTE_STYLES);
   const without = styles.filter(
     (s) =>
       s !== ELEMENTOR_PREVIEW_STYLE_HREF &&
       s !== ELEMENTOR_KIT_VARS_STYLE_HREF &&
-      s !== ELEMENTOR_CANVAS_FIX_STYLE_HREF,
+      s !== ELEMENTOR_CANVAS_FIX_STYLE_HREF &&
+      s !== SITE_FONTS_STYLE_HREF &&
+      !remote.has(s),
   );
   return [
+    SITE_FONTS_STYLE_HREF,
     ELEMENTOR_KIT_VARS_STYLE_HREF,
     ELEMENTOR_PREVIEW_STYLE_HREF,
     ELEMENTOR_CANVAS_FIX_STYLE_HREF,
+    ...CANVAS_REMOTE_STYLES,
     ...without,
   ];
 }

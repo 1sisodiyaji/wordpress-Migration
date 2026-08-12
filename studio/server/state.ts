@@ -31,7 +31,36 @@ function metaPath(slug: string): string {
   return path.join(SITES_ROOT, slug, "studio.json");
 }
 
+/** True when the site folder exists and is readable (not a broken junction). */
+export function isSiteDirHealthy(slug: string): boolean {
+  const dir = path.join(SITES_ROOT, slug);
+  if (!fs.existsSync(dir)) return false;
+  try {
+    fs.readdirSync(dir);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Ensure `sites/<slug>` is a writable real directory.
+ * Removes broken Windows junctions (ENOENT on mkdir/readdir) before creating.
+ */
+export function ensureSiteDir(slug: string): string {
+  const dir = path.join(SITES_ROOT, slug);
+  fs.mkdirSync(SITES_ROOT, { recursive: true });
+
+  if (fs.existsSync(dir) && !isSiteDirHealthy(slug)) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
 export function readStudioMeta(slug: string): StudioMeta | null {
+  if (!isSiteDirHealthy(slug)) return null;
   const file = metaPath(slug);
   if (!fs.existsSync(file)) return null;
   try {
@@ -42,8 +71,7 @@ export function readStudioMeta(slug: string): StudioMeta | null {
 }
 
 export function writeStudioMeta(meta: StudioMeta): void {
-  const dir = path.join(SITES_ROOT, meta.slug);
-  fs.mkdirSync(dir, { recursive: true });
+  ensureSiteDir(meta.slug);
   meta.updatedAt = new Date().toISOString();
   fs.writeFileSync(metaPath(meta.slug), JSON.stringify(meta, null, 2), "utf8");
 }
@@ -82,5 +110,5 @@ export function patchStudioMeta(slug: string, patch: Partial<StudioMeta>): Studi
 }
 
 export function getImportDir(slug: string): string {
-  return path.join(SITES_ROOT, slug, "import");
+  return path.join(ensureSiteDir(slug), "import");
 }

@@ -16,6 +16,21 @@ async function main() {
   registerAuthRoutes(app);
   registerApi(app);
 
+  // Always JSON for API failures — never fall through to Vite's HTML SPA shell.
+  app.use((err: unknown, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (!req.path.startsWith("/api/")) {
+      next(err);
+      return;
+    }
+    if (res.headersSent) {
+      next(err);
+      return;
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[api]", req.method, req.path, err);
+    res.status(500).json({ error: message || "Internal server error" });
+  });
+
   const vite = await createViteServer({
     root: STUDIO_ROOT,
     server: { middlewareMode: true },

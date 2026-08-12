@@ -23,16 +23,17 @@
     "lint": "eslint scraper generator lib studio"
   },
   "dependencies": {
+    "adm-zip": "^0.5.16",
     "cheerio": "^1.2.0",
     "dotenv": "^17.4.2",
     "express": "^5.1.0",
     "graphql": "^16.14.0",
     "graphql-request": "^7.4.0",
     "multer": "^2.0.2",
+    "ogl": "^1.0.11",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "undici": "^8.7.0",
-    "adm-zip": "^0.5.16"
+    "undici": "^8.7.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.3",
