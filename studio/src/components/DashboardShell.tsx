@@ -1,15 +1,12 @@
 import type { ReactNode } from "react";
-import type { AuthUser } from "../auth-api";
 import { StudioLogo } from "./StudioLogo";
 import { useScrolled } from "../hooks/useScrolled";
 
 interface Props {
-  user: AuthUser;
   title?: string;
   subtitle?: string;
   activeNav?: "projects" | "project";
   onHome: () => void;
-  onLogout: () => void;
   onTheme: () => void;
   isDark: boolean;
   actions?: ReactNode;
@@ -37,23 +34,15 @@ function IconTheme({ dark }: { dark: boolean }) {
 }
 
 export function DashboardShell({
-  user,
   title,
   subtitle,
   activeNav = "projects",
   onHome,
-  onLogout,
   onTheme,
   isDark,
   actions,
   children,
 }: Props) {
-  const initials = user.name
-    .split(/\s+/)
-    .map((p) => p[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
   const topbarScrolled = useScrolled(10);
 
   return (
@@ -96,21 +85,6 @@ export function DashboardShell({
             </span>
             <span>{isDark ? "Light theme" : "Dark theme"}</span>
           </button>
-
-          <div className="dash-user-card">
-            {user.avatarUrl ? (
-              <img src={user.avatarUrl} alt="" className="dash-avatar" />
-            ) : (
-              <span className="dash-avatar dash-avatar-fallback">{initials}</span>
-            )}
-            <div className="dash-user-meta">
-              <strong>{user.name}</strong>
-              <small>{user.email}</small>
-            </div>
-            <button type="button" className="btn btn-text btn-sm" onClick={onLogout}>
-              Sign out
-            </button>
-          </div>
         </div>
       </aside>
 

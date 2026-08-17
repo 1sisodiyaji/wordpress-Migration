@@ -39,6 +39,31 @@ async function main() {
 
   app.use(vite.middlewares);
 
+  // History-API SPA fallback for /project/:slug refreshes.
+  app.use(async (req, res, next) => {
+    if (req.method !== "GET" && req.method !== "HEAD") {
+      next();
+      return;
+    }
+    if (req.path.startsWith("/api/") || req.path.startsWith("/@") || req.path.startsWith("/node_modules") || req.path.startsWith("/src/")) {
+      next();
+      return;
+    }
+    if (path.extname(req.path)) {
+      next();
+      return;
+    }
+    try {
+      const fs = await import("node:fs");
+      const indexPath = path.join(STUDIO_ROOT, "index.html");
+      let html = fs.readFileSync(indexPath, "utf8");
+      html = await vite.transformIndexHtml(req.originalUrl, html);
+      res.status(200).setHeader("Content-Type", "text/html").end(html);
+    } catch (err) {
+      next(err);
+    }
+  });
+
   app.listen(PORT, () => {
     console.log(`\n🎨 Studio running at http://localhost:${PORT}`);
     console.log(`   Scrape → Convert → Open GrapeJS editor in a new tab\n`);
