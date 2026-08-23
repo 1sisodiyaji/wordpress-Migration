@@ -104,6 +104,7 @@ class Assets_Collector {
 			'elementor-icons'           => 'elementor/assets/lib/eicons/css/elementor-icons.min.css',
 			'elementor-widget-heading'  => 'elementor/assets/css/widget-heading.min.css',
 			'elementor-widget-image'    => 'elementor/assets/css/widget-image.min.css',
+			'elementor-widget-text'     => 'elementor/assets/css/widget-text-editor.min.css',
 			'elementor-widget-icon-box' => 'elementor/assets/css/widget-icon-box.min.css',
 			'elementor-widget-icon-list'=> 'elementor/assets/css/widget-icon-list.min.css',
 			'elementor-widget-divider'  => 'elementor/assets/css/widget-divider.min.css',

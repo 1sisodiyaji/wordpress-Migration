@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { collectCanvasStyles, patchElementorCssUrls, prepareGrapeHtml } from "./grape-prep";
+import { cleanGeneratedProject } from "./fs-clean";
 import { pageKeyToComponent } from "./names";
 import type { ScrapedSite } from "./read-scraped";
 
@@ -28,7 +29,7 @@ export async function generateReactGrapeProject(opts: GenerateOptions): Promise<
   const projectDir = getProjectDir(opts.siteSlug);
   const port = opts.port ?? 3001;
 
-  cleanProjectDir(projectDir);
+  cleanGeneratedProject(projectDir);
 
   fs.mkdirSync(path.join(projectDir, "src", "components"), { recursive: true });
   fs.mkdirSync(path.join(projectDir, "src", "pages"), { recursive: true });
@@ -44,27 +45,6 @@ export async function generateReactGrapeProject(opts: GenerateOptions): Promise<
   return projectDir;
 }
 
-/** Remove generated sources/assets but keep node_modules so a running Vite server is not broken mid-regenerate. */
-function cleanProjectDir(projectDir: string): void {
-  if (!fs.existsSync(projectDir)) {
-    fs.mkdirSync(projectDir, { recursive: true });
-    return;
-  }
-
-  for (const entry of [
-    "src",
-    "public",
-    "index.html",
-    "vite.config.ts",
-    "tsconfig.json",
-    "package.json",
-  ]) {
-    const full = path.join(projectDir, entry);
-    if (fs.existsSync(full)) {
-      fs.rmSync(full, { recursive: true, force: true });
-    }
-  }
-}
 
 function copyAssets(src: string, dest: string): void {
   if (!fs.existsSync(src)) return;

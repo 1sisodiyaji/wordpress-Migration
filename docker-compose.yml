@@ -1,69 +1,41 @@
 services:
-  db:
-    image: mariadb:10.4
+  radius_db:
+    image: mariadb:10.11
     restart: unless-stopped
     environment:
       MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
-      MYSQL_DATABASE: smartco
+      MYSQL_DATABASE: radius_ois
     volumes:
-      - smartco_db_data:/var/lib/mysql
-      - ./try-data/smartco.sql:/docker-entrypoint-initdb.d/smartco.sql:ro
+      - radius_db_data:/var/lib/mysql
+      - ./try-data/radius-ois/Radius-ois.sql:/docker-entrypoint-initdb.d/Radius-ois.sql:ro
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 5s
       timeout: 5s
-      retries: 20
+      retries: 60
+      start_period: 120s
 
-  wordpress:
+  radius_wordpress:
     build: ./docker/wordpress
     restart: unless-stopped
     depends_on:
-      db:
+      radius_db:
         condition: service_healthy
     ports:
-      - "8082:80"
+      - "8084:80"
     volumes:
-      - ./try-data/smartco-20260705T182508Z-3-001/smartco:/var/www/html
+      - ./try-data/radius-ois/www:/var/www/html
       - ./wp-plugin/wp-grape-export:/var/www/html/wp-content/plugins/wp-grape-export
 
-  phpmyadmin:
+  radius_phpmyadmin:
     image: phpmyadmin:latest
     restart: unless-stopped
     depends_on:
-      - db
+      - radius_db
     environment:
-      PMA_HOST: db
+      PMA_HOST: radius_db
     ports:
-      - "8081:80"
-
-  # Orbit Commercial Bank (port 8083)
-  orbit_db:
-    image: mariadb:10.4
-    restart: unless-stopped
-    environment:
-      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
-      MYSQL_DATABASE: orbit_central_bank
-    volumes:
-      - orbit_db_data:/var/lib/mysql
-      - ./try-data/orbit_central_bank.sql:/docker-entrypoint-initdb.d/orbit_central_bank.sql:ro
-    healthcheck:
-      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
-      interval: 5s
-      timeout: 5s
-      retries: 30
-
-  orbit_wordpress:
-    build: ./docker/wordpress
-    restart: unless-stopped
-    depends_on:
-      orbit_db:
-        condition: service_healthy
-    ports:
-      - "8083:80"
-    volumes:
-      - ./try-data/orbit-commercial-bank/Orbit-Commercial-Bank:/var/www/html
-      - ./wp-plugin/wp-grape-export:/var/www/html/wp-content/plugins/wp-grape-export
+      - "8085:80"
 
 volumes:
-  smartco_db_data:
-  orbit_db_data:
+  radius_db_data:

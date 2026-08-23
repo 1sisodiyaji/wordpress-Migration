@@ -1,10 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
-import { getMigratedDataDir, getMigratedPublicDir } from "../lib/wp/config";
-import { upsertSite } from "../lib/wp/sites";
-import type { WpRoute } from "../lib/wp/types";
-import { getImportSourceDir, getWpImportStatus } from "../lib/wp-import/store-parts";
-import { importWpExport } from "../lib/wp-import/import-wp-export";
+import { getMigratedDataDir, getMigratedPublicDir } from "../wp/config";
+import { upsertSite } from "../wp/sites";
+import type { WpRoute } from "../wp/types";
+import { getImportSourceDir, getWpImportStatus } from "./store-parts";
+import { importWpExport } from "./import-wp-export";
 
 export interface ImportLocalOptions {
   importPath: string;
@@ -46,7 +46,9 @@ export async function importLocalSource(opts: ImportLocalOptions): Promise<void>
       name: opts.name,
     });
     console.log(`\n✅ WordPress import → sites/${opts.siteSlug}/`);
-    console.log(`   Pages: ${result.pageCount} | SQL: ${result.hasSql} | wp-content: ${result.hasWpContent} | wp-config: ${result.hasWpConfig}\n`);
+    console.log(
+      `   Pages: ${result.pageCount} | SQL: ${result.hasSql} | wp-content: ${result.hasWpContent} | wp-config: ${result.hasWpConfig}\n`,
+    );
     return;
   }
 
@@ -127,11 +129,7 @@ export async function importLocalSource(opts: ImportLocalOptions): Promise<void>
     },
   };
 
-  fs.writeFileSync(
-    path.join(dataDir, "manifest.json"),
-    JSON.stringify(manifest, null, 2),
-    "utf8",
-  );
+  fs.writeFileSync(path.join(dataDir, "manifest.json"), JSON.stringify(manifest, null, 2), "utf8");
 
   upsertSite({
     slug: opts.siteSlug,

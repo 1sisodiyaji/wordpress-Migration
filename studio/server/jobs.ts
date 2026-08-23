@@ -3,9 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { getProjectDir } from "../../generator/lib/scaffold";
 import { assertValidAppTsx } from "../../generator/lib/app-shell-template";
-import { initMigrationLog } from "../../lib/wp/migration-log";
-import { upsertSite, normalizeWordPressUrl } from "../../lib/wp/sites";
-import { importLocalSource } from "../../scraper/import-local";
+import { importLocalSource } from "../../lib/wp-import/import-local";
 import { importPluginExport } from "../../lib/wp-import/import-plugin-export";
 import {
   explainWpAuthFailure,
@@ -17,9 +15,9 @@ import {
   type WpWhoAmI,
 } from "../../lib/wp-import/plugin-rest";
 import { patchStudioMeta, getImportDir, readStudioMeta, type StudioMeta } from "./state";
+import { syncLocalPluginExport, LOCAL_WP_URL } from "../../lib/wp-import/sync-local-export";
 
 const ROOT = process.cwd();
-const scrapeProcesses = new Map<string, ChildProcess>();
 const editorProcesses = new Map<string, ChildProcess>();
 const usedPorts = new Set<number>();
 
@@ -36,50 +34,12 @@ function releasePort(port: number | undefined): void {
   if (port) usedPorts.delete(port);
 }
 
-export function isScrapeRunning(slug: string): boolean {
-  return scrapeProcesses.has(slug);
+export function isScrapeRunning(_slug: string): boolean {
+  return false;
 }
 
 export function isEditorRunning(slug: string): boolean {
   return editorProcesses.has(slug);
-}
-
-export async function runScrapeFromUrl(slug: string, url: string): Promise<void> {
-  if (scrapeProcesses.has(slug)) {
-    throw new Error("Scrape already running");
-  }
-
-  const normalized = normalizeWordPressUrl(url);
-  initMigrationLog(slug, normalized);
-  upsertSite({ slug, url: normalized, name: new URL(normalized).hostname, status: "migrating" });
-  patchStudioMeta(slug, { scrapeStatus: "running", error: undefined, url: normalized });
-
-  return new Promise((resolve, reject) => {
-    const child = spawn(
-      "pnpm",
-      ["scrape", "--", "--url", normalized, "--site", slug, "--all"],
-      { cwd: ROOT, shell: true, env: { ...process.env, SITE_SLUG: slug, WORDPRESS_URL: normalized } },
-    );
-
-    scrapeProcesses.set(slug, child);
-
-    child.on("exit", (code) => {
-      scrapeProcesses.delete(slug);
-      if (code === 0) {
-        patchStudioMeta(slug, { scrapeStatus: "done" });
-        resolve();
-      } else {
-        patchStudioMeta(slug, { scrapeStatus: "failed", error: `Scrape exited with code ${code}` });
-        reject(new Error(`Scrape failed (code ${code})`));
-      }
-    });
-
-    child.on("error", (err) => {
-      scrapeProcesses.delete(slug);
-      patchStudioMeta(slug, { scrapeStatus: "failed", error: err.message });
-      reject(err);
-    });
-  });
 }
 
 export async function runImportFromFiles(slug: string, name: string): Promise<void> {
@@ -131,18 +91,15 @@ export async function runPullFromPluginRest(
     const restBase = await resolveWpRestBase(base);
     const local = isLocalWpUrl(base);
 
-    // Probe auth before running a long export so errors are actionable.
     const whoamiUrl = wpRestEndpoint(restBase, "/wp-grape-export/v1/whoami");
     const whoamiRes = await fetch(whoamiUrl, { headers: { Authorization: auth } });
     const whoami = (await whoamiRes.json().catch(() => null)) as WpWhoAmI | null;
     if (whoami && whoami.ok !== false && (!whoami.loggedIn || !whoami.canExport)) {
       throw new Error(`Remote export failed: ${explainWpAuthFailure(whoami, local)}`);
     }
-    // Older plugin without /whoami — continue; export will return the usual 401.
 
     const exportUrl = wpRestEndpoint(restBase, "/wp-grape-export/v1/export");
 
-    // 1. Trigger the export on the remote WordPress.
     const exportRes = await fetch(exportUrl, {
       method: "POST",
       headers: { Authorization: auth, "Content-Type": "application/json" },
@@ -162,7 +119,6 @@ export async function runPullFromPluginRest(
       throw new Error(`Remote export failed: ${parseWpRestError(exportRes.status, exportData)}`);
     }
 
-    // 2. Download the generated bundle.
     const zipRes = await fetch(exportData.url, { headers: { Authorization: auth } });
     if (!zipRes.ok) {
       throw new Error(`Failed to download bundle: HTTP ${zipRes.status}`);
@@ -174,12 +130,58 @@ export async function runPullFromPluginRest(
     const zipPath = path.join(importDir, "plugin-export.zip");
     fs.writeFileSync(zipPath, zipBuffer);
 
-    // 3. Import it the same way as an uploaded bundle.
     await importPluginExport({ source: zipPath, siteSlug: slug, name });
     patchStudioMeta(slug, { scrapeStatus: "done", hasPluginExport: true, url: base });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     patchStudioMeta(slug, { scrapeStatus: "failed", error: message });
+    throw err;
+  }
+}
+
+/**
+ * Local inner loop: bind-mounted plugin → docker CLI export → import → generate.
+ * No plugin ZIP upload and no Studio ZIP upload.
+ */
+export async function runSyncFromLocalWp(
+  slug: string,
+  name: string,
+  opts: { copyMedia?: boolean; skipGenerate?: boolean } = {},
+): Promise<void> {
+  patchStudioMeta(slug, {
+    scrapeStatus: "running",
+    sourceType: "plugin",
+    error: undefined,
+    url: LOCAL_WP_URL,
+  });
+
+  try {
+    const skipGenerate = Boolean(opts.skipGenerate);
+    if (!skipGenerate) {
+      patchStudioMeta(slug, { generateStatus: "running" });
+    }
+
+    const result = await syncLocalPluginExport({
+      siteSlug: slug,
+      name,
+      copyMedia: opts.copyMedia !== false,
+      skipGenerate,
+    });
+
+    const appPath = path.join(getProjectDir(slug), "src", "App.tsx");
+    if (result.generated && fs.existsSync(appPath)) {
+      assertValidAppTsx(fs.readFileSync(appPath, "utf8"));
+    }
+
+    patchStudioMeta(slug, {
+      scrapeStatus: "done",
+      hasPluginExport: true,
+      url: LOCAL_WP_URL,
+      generateStatus: result.generated ? "done" : readStudioMeta(slug)?.generateStatus,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    patchStudioMeta(slug, { scrapeStatus: "failed", error: message, generateStatus: "failed" });
     throw err;
   }
 }
@@ -190,7 +192,6 @@ export async function runGenerate(slug: string): Promise<StudioMeta> {
 
   try {
     const port = allocatePort();
-    // Fresh subprocess so Studio always uses the latest generator on disk (not a cached import).
     await runCmd("pnpm", ["generate", "--", "--site", slug, "--port", String(port)], ROOT);
 
     const projectDir = getProjectDir(slug);
@@ -276,12 +277,8 @@ export async function startEditor(slug: string): Promise<{ port: number; url: st
   });
 }
 
-export function stopScrape(slug: string): void {
-  const child = scrapeProcesses.get(slug);
-  if (child) {
-    child.kill("SIGTERM");
-    scrapeProcesses.delete(slug);
-  }
+export function stopScrape(_slug: string): void {
+  /* legacy no-op — external URL scrape removed */
 }
 
 export function stopEditor(slug: string, opts: { skipMeta?: boolean } = {}): void {

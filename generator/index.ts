@@ -1,10 +1,9 @@
 #!/usr/bin/env npx tsx
 /**
- * Generate a React + GrapeJS project from scraped HTML.
+ * Generate a React + GrapeJS project from a wp-grape-export bundle.
  *
- *   pnpm generate -- --site example-com
- *   pnpm generate -- --site example-com --port 3002
- *   pnpm generate -- --site example-com --run   # install deps and start dev server
+ *   pnpm generate -- --site radius-ois
+ *   pnpm generate -- --site radius-ois --port 3002 --run
  */
 import "dotenv/config";
 import { spawn } from "node:child_process";
@@ -21,18 +20,14 @@ if (!site) {
 Usage:
   pnpm generate -- --site <slug> [--port 3001] [--run]
 
-Example:
-  pnpm scrape -- --url https://example.com --site example-com --all
-  pnpm generate -- --site example-com --run
+Import a wp-grape-export ZIP in Studio first, or pull from a local WordPress site.
 `);
   process.exit(1);
 }
 
 const projectDir = await generateReactGrapeProject({ siteSlug: site, port });
 
-console.log(`\n✅ Generated React + GrapeJS project → projects/${site}/`);
-console.log(`   Pages scraped into src/data/site.json`);
-console.log(`   Assets copied to public/assets/\n`);
+console.log(`\n✅ Generated React + GrapeJS project → projects/${site}/\n`);
 
 if (shouldRun) {
   console.log(`📦 Installing dependencies in projects/${site}/...`);
@@ -42,9 +37,7 @@ if (shouldRun) {
   const child = spawn("pnpm", ["dev"], { cwd: projectDir, stdio: "inherit", shell: true });
   child.on("exit", (code) => process.exit(code ?? 0));
 } else {
-  console.log(`Next steps:`);
-  console.log(`  cd projects/${site} && pnpm install && pnpm dev`);
-  console.log(`  # or: pnpm generate -- --site ${site} --run\n`);
+  console.log(`Next: cd projects/${site} && pnpm install && pnpm dev\n`);
 }
 
 function getArg(args: string[], name: string): string | undefined {
@@ -56,8 +49,7 @@ function getArg(args: string[], name: string): string | undefined {
 
 function runCmd(cmd: string, args: string[], cwd: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { cwd, stdio: "inherit", shell: true });
-    child.on("error", reject);
+    const child = spawn(cmd, args, { cwd, shell: true, stdio: "inherit" });
     child.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(`${cmd} exited ${code}`))));
   });
 }

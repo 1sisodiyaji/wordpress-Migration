@@ -200,6 +200,7 @@ function landBundle(
         : "",
       `${dir}/assets.json`,
       `${dir}/shortcodes.json`,
+      `${dir}/inline.css`,
     ].filter(Boolean) as string[];
     const writtenExtras = new Set<string>();
     for (const rel of pageExtras) {

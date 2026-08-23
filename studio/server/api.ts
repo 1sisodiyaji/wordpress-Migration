@@ -2,13 +2,12 @@ import type { Express } from "express";
 import fs from "node:fs";
 import path from "node:path";
 import {
+  upsertSite,
+  siteExists,
+  siteHasData,
   deleteSite,
   getSite,
   readRegistry,
-  siteExists,
-  siteHasData,
-  upsertSite,
-  normalizeWordPressUrl,
 } from "../../lib/wp/sites";
 import { readMigrationLog } from "../../lib/wp/migration-log";
 import { readMigrationStatus } from "../../lib/wp/migration-status";
@@ -17,7 +16,8 @@ import {
   isEditorRunning,
   runGenerate,
   runImportFromFiles,
-  runScrapeFromUrl,
+  runPullFromPluginRest,
+  runSyncFromLocalWp,
   startEditor,
   stopEditor,
 } from "./jobs";
@@ -27,7 +27,6 @@ import { registerUploadRoutes } from "./upload";
 import { getMigratedDataDir } from "../../lib/wp/config";
 import type { MigrationManifest, PluginExportAudit } from "../../lib/wp/types";
 import { getProjectDir } from "../../generator/lib/scaffold";
-import { runPullFromPluginRest } from "./jobs";
 import { deleteProjectCompletely } from "./cleanup";
 
 export interface ProjectAudit {
@@ -126,32 +125,27 @@ export function registerApi(app: Express): void {
 
   app.post("/api/projects", (req, res) => {
     try {
-      const { name, url, sourceType } = req.body as {
+      const { name, sourceType } = req.body as {
         name?: string;
-        url?: string;
-        sourceType?: "url" | "files" | "plugin";
+        sourceType?: "files" | "plugin";
       };
 
-      const type = sourceType ?? (url ? "url" : "files");
-      const displayName =
-        name?.trim() || (url ? new URL(normalizeWordPressUrl(url)).hostname : "New project");
+      const type = sourceType ?? "plugin";
+      const displayName = name?.trim() || "New project";
       let slug = slugify(displayName);
       // Skip taken or broken leftover folders (e.g. dangling junctions).
       while (readStudioMeta(slug) || getSite(slug) || isSiteDirHealthy(slug)) {
         slug = `${slugify(displayName)}-${Date.now().toString(36).slice(-4)}`;
       }
-      const normalizedUrl = url ? normalizeWordPressUrl(url) : undefined;
-
       const meta = createStudioMeta({
         slug,
         name: displayName,
         sourceType: type,
-        url: normalizedUrl,
       });
 
       upsertSite({
         slug,
-        url: normalizedUrl ?? `local://${slug}`,
+        url: `local://${slug}`,
         name: displayName,
         status: "migrating",
       });
@@ -221,10 +215,13 @@ export function registerApi(app: Express): void {
     try {
       if (meta.sourceType === "files") {
         await runImportFromFiles(slug, meta.name);
-      } else if (meta.url) {
-        await runScrapeFromUrl(slug, meta.url);
-      } else {
-        patchStudioMeta(slug, { scrapeStatus: "failed", error: "No URL or files configured" });
+      } else if (meta.sourceType === "plugin" && meta.scrapeStatus !== "done") {
+        patchStudioMeta(slug, {
+          scrapeStatus: "failed",
+          error: "Plugin export not imported yet. Upload a ZIP or pull from WordPress.",
+        });
+      } else if (meta.sourceType !== "plugin") {
+        patchStudioMeta(slug, { scrapeStatus: "failed", error: "No import source configured" });
       }
     } catch {
       // status updated in jobs
@@ -260,6 +257,32 @@ export function registerApi(app: Express): void {
         username,
         appPassword,
         copyMedia: Boolean(copyMedia),
+      });
+    } catch {
+      // status recorded in job
+    }
+  });
+
+  // Local inner loop: bind-mounted plugin + docker exec export (no ZIP upload).
+  app.post("/api/projects/:slug/plugin-sync", async (req, res) => {
+    const slug = String(req.params.slug);
+    const meta = readStudioMeta(slug);
+    if (!meta) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+
+    const { copyMedia, skipGenerate } = (req.body ?? {}) as {
+      copyMedia?: boolean;
+      skipGenerate?: boolean;
+    };
+
+    res.json({ ok: true, started: true });
+
+    try {
+      await runSyncFromLocalWp(slug, meta.name, {
+        copyMedia: copyMedia !== false,
+        skipGenerate: Boolean(skipGenerate),
       });
     } catch {
       // status recorded in job

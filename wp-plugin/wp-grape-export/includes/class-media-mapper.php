@@ -91,6 +91,20 @@ class Media_Mapper {
 
 			if ( $this->copy_files && $file && $rel_content ) {
 				$this->writer->copy( $file, 'assets/wp-content/' . $rel_content );
+				// srcset uses intermediate sizes (300x45, 768w, …). Copy those too or
+				// the browser picks a missing candidate and the logo/image never shows.
+				$dir     = dirname( $file );
+				$rel_dir = dirname( $rel_content );
+				foreach ( $sizes as $info ) {
+					$name = isset( $info['file'] ) ? $info['file'] : '';
+					if ( ! $name ) {
+						continue;
+					}
+					$size_abs = $dir . '/' . $name;
+					if ( is_readable( $size_abs ) ) {
+						$this->writer->copy( $size_abs, 'assets/wp-content/' . $rel_dir . '/' . $name );
+					}
+				}
 			}
 		}
 

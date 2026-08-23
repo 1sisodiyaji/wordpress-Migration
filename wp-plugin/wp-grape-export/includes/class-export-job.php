@@ -236,15 +236,27 @@ class Export_Job {
 		$zip_builder = new Zip_Builder();
 		$zip_builder->build( $staging, $zip_path );
 
-		// Clean staging (best-effort).
-		$this->rrmdir( $staging );
+		// Stable paths for the local inner loop (no re-upload): latest/ + latest.zip
+		// sit next to the timestamped archive on the bind-mounted uploads volume.
+		$latest_dir = trailingslashit( $base ) . 'latest';
+		$latest_zip = trailingslashit( $base ) . 'latest.zip';
+		if ( is_file( $zip_path ) ) {
+			copy( $zip_path, $latest_zip ); // phpcs:ignore WordPress.WP.AlternativeFunctions
+		}
+		$this->rrmdir( $latest_dir );
+		if ( ! @rename( $staging, $latest_dir ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			$this->rrmdir( $staging );
+			$latest_dir = '';
+		}
 
 		$zip_url = trailingslashit( $uploads['baseurl'] ) . 'wp-grape-export/' . $zip_name;
 
 		return array(
-			'zip'   => $zip_path,
-			'url'   => $zip_url,
-			'stats' => $manifest['counts'],
+			'zip'       => $zip_path,
+			'url'       => $zip_url,
+			'latestDir' => $latest_dir,
+			'latestZip' => $latest_zip,
+			'stats'     => $manifest['counts'],
 		);
 	}
 

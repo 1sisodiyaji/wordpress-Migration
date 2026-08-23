@@ -58,7 +58,7 @@ class Plugin {
 	 * Run a full export and return the path to the generated ZIP.
 	 *
 	 * @param array $args Optional export arguments.
-	 * @return array{zip:string,url:string,stats:array}
+	 * @return array{zip:string,url:string,latestDir?:string,latestZip?:string,stats:array}
 	 */
 	public function run_export( array $args = array() ) {
 		$job = new Export_Job( $args );

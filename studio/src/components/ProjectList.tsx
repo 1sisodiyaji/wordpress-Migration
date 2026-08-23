@@ -12,8 +12,8 @@ function statusBadge(project: Project): string {
   if (!m) return "new";
   if (m.editorStatus === "running") return "editor live";
   if (m.generateStatus === "done") return "converted";
-  if (m.scrapeStatus === "done") return "scraped";
-  if (m.scrapeStatus === "running" || project.scrapeRunning) return "scraping";
+  if (m.scrapeStatus === "done") return "imported";
+  if (m.scrapeStatus === "running" || project.scrapeRunning) return "importing";
   if (m.scrapeStatus === "failed") return "failed";
   return "draft";
 }
@@ -23,7 +23,7 @@ function sourceLabel(project: Project): string {
   if (!m) return project.slug;
   if (m.sourceType === "plugin") return "Plugin export";
   if (m.sourceType === "files") return "WordPress files";
-  return m.url ?? "Website URL";
+  return "Plugin export";
 }
 
 export function ProjectList({ projects, onOpen, onDelete, onCreate }: Props) {
@@ -36,7 +36,7 @@ export function ProjectList({ projects, onOpen, onDelete, onCreate }: Props) {
           </svg>
         </div>
         <h2>No projects yet</h2>
-        <p>Create a project from a URL, WordPress files, or a wp-grape-export bundle.</p>
+        <p>Create a project from a wp-grape-export bundle or WordPress file upload.</p>
         {onCreate ? (
           <button type="button" className="btn btn-primary" onClick={onCreate}>
             Create project

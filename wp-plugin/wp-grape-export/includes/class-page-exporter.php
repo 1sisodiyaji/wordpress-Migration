@@ -155,6 +155,8 @@ class Page_Exporter {
 			$this->resolver->audit_unresolved( $rendered, $route )
 		);
 
+		$inline_css_file = $this->write_extracted_styles( $dir, $rendered );
+
 		$rendered_file = $dir . '/rendered.html';
 		$this->writer->write( $rendered_file, $rendered );
 
@@ -206,7 +208,11 @@ class Page_Exporter {
 		$this->writer->write_json( $dir . '/meta.json', $meta );
 
 		$page_assets = new Widget_Assets( $this->elementor );
-		$this->writer->write_json( $dir . '/assets.json', $page_assets->build_page_profile( $post_id ) );
+		$profile     = $page_assets->build_page_profile( $post_id );
+		if ( $inline_css_file ) {
+			$profile['inlineCss'] = $inline_css_file;
+		}
+		$this->writer->write_json( $dir . '/assets.json', $profile );
 
 		$route['dir'] = $dir;
 
@@ -370,13 +376,59 @@ class Page_Exporter {
 
 			$this->resolved_document_ids[ $id ] = true;
 
+			// Template widgets often inject markup without the nested document's
+			// <style> block (Improved CSS Loading). Prepend those styles so
+			// shortcode/template CSS (logo carousels, CTAs) actually applies.
+			if ( preg_match_all( '#<style\b[^>]*>.*?</style>#is', $inner, $style_matches ) ) {
+				foreach ( $style_matches[0] as $style_tag ) {
+					if ( false === strpos( $html, $style_tag ) ) {
+						$html = $style_tag . "\n" . $html;
+					}
+				}
+			}
+
 			$raw = isset( $row['raw'] ) ? (string) $row['raw'] : '';
 			if ( $raw && false !== strpos( $html, $raw ) ) {
 				$html = str_replace( $raw, $inner, $html );
+			} elseif (
+				false === strpos( $html, 'elementor-' . $id )
+				&& false === strpos( $html, 'data-elementor-id="' . $id . '"' )
+			) {
+				$html .= "\n" . $inner;
 			}
 		}
 
 		return $html;
+	}
+
+	/**
+	 * Persist Elementor <style> blocks as a sidecar CSS file.
+	 * Improved CSS Loading often never writes post-{id}.css.
+	 *
+	 * @param string $dir  Page dir in the bundle.
+	 * @param string $html Rendered HTML.
+	 * @return string|null Relative path of inline.css or null.
+	 */
+	private function write_extracted_styles( $dir, $html ) {
+		if ( ! is_string( $html ) || false === stripos( $html, '<style' ) ) {
+			return null;
+		}
+		if ( ! preg_match_all( '#<style\b[^>]*>(.*?)</style>#is', $html, $matches ) ) {
+			return null;
+		}
+		$chunks = array();
+		foreach ( $matches[1] as $css ) {
+			$css = trim( (string) $css );
+			if ( '' !== $css ) {
+				$chunks[] = $css;
+			}
+		}
+		if ( ! $chunks ) {
+			return null;
+		}
+		$file = $dir . '/inline.css';
+		$this->writer->write( $file, implode( "\n\n", $chunks ) );
+		return $file;
 	}
 
 	/**

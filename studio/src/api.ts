@@ -1,6 +1,6 @@
 export type JobStatus = "pending" | "running" | "done" | "failed";
 
-export type SourceType = "url" | "files" | "plugin";
+export type SourceType = "files" | "plugin";
 
 export interface StudioMeta {
   slug: string;
@@ -86,7 +86,6 @@ export async function fetchProject(slug: string): Promise<Project> {
 
 export async function createProject(body: {
   name: string;
-  url?: string;
   sourceType: SourceType;
 }): Promise<Project> {
   const res = await fetch("/api/projects", {
@@ -136,6 +135,19 @@ export async function pullPluginExport(
   });
   const data = await readJson<{ error?: string }>(res);
   if (!res.ok) throw new Error(data.error ?? "Pull from WordPress failed");
+}
+
+export async function syncPluginFromLocalWp(
+  slug: string,
+  body: { copyMedia?: boolean; skipGenerate?: boolean } = {},
+): Promise<void> {
+  const res = await fetch(`/api/projects/${slug}/plugin-sync`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await readJson<{ error?: string }>(res);
+  if (!res.ok) throw new Error(data.error ?? "Local WordPress sync failed");
 }
 
 export async function startScrape(slug: string): Promise<void> {

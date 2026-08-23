@@ -34,6 +34,30 @@ in export HTML. **0.1.9** adds `Shortcode_Resolver`:
 
 An external scraper cannot reliably resolve `[shortcodes]`, Elementor widget trees, or Theme Builder header/footer assignment because those require the WordPress runtime. This plugin renders everything from within WP and emits a versioned bundle matching `export-schema/v2/manifest.schema.json` in the main repo.
 
+## Local inner loop (no ZIP upload)
+
+The plugin folder is **bind-mounted** into Docker. PHP edits on disk are live in WordPress immediately — do **not** re-zip and re-upload the plugin.
+
+After you change export code:
+
+```bash
+pnpm plugin:sync
+```
+
+That one command:
+
+1. Runs export inside the WordPress container (`http://localhost:8084`)
+2. Writes `uploads/wp-grape-export/latest/` (and `latest.zip`)
+3. Imports into `sites/radius-ois/`
+4. Regenerates `projects/radius-ois/` (keeps `node_modules`)
+
+In Studio you can also click **Sync from localhost:8084** on the project.
+
+```bash
+pnpm plugin:sync -- --skip-generate   # export + import only
+pnpm plugin:sync -- --no-media        # skip copying uploads
+```
+
 ## Install (for local Docker testing)
 
 `docker-compose.yml` bind-mounts this folder into the WordPress container:

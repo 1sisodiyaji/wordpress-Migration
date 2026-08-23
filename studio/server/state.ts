@@ -5,7 +5,7 @@ import { SITES_ROOT } from "../../lib/wp/sites";
 export type JobStatus = "pending" | "running" | "done" | "failed";
 export type EditorStatus = "stopped" | "starting" | "running";
 
-export type SourceType = "url" | "files" | "plugin";
+export type SourceType = "files" | "plugin";
 
 export interface StudioMeta {
   slug: string;
@@ -102,7 +102,7 @@ export function patchStudioMeta(slug: string, patch: Partial<StudioMeta>): Studi
   const current = readStudioMeta(slug) ?? createStudioMeta({
     slug,
     name: slug,
-    sourceType: "url",
+    sourceType: "plugin",
   });
   const next = { ...current, ...patch, slug };
   writeStudioMeta(next);

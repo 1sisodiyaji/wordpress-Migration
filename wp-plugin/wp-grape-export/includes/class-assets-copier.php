@@ -153,35 +153,20 @@ class Assets_Copier {
 			return;
 		}
 
-		$copied = array();
-		foreach ( $post_ids as $post_id ) {
-			$post_id = (int) $post_id;
-			if ( ! $post_id ) {
+		$keep_ids = array_fill_keys( array_map( 'intval', $post_ids ), true );
+
+		foreach ( glob( $css_dir . '/*.css' ) as $file ) {
+			$base = basename( $file );
+			if ( preg_match( '/^post-(\d+)\.css$/', $base, $m ) && empty( $keep_ids[ (int) $m[1] ] ) ) {
 				continue;
 			}
-			$file = $css_dir . '/post-' . $post_id . '.css';
-			if ( is_readable( $file ) ) {
-				$dest = 'assets/wp-content/uploads/elementor/css/post-' . $post_id . '.css';
-				if ( $this->writer->copy( $file, $dest ) ) {
-					$copied[ basename( $file ) ] = true;
-					$this->copied_files++;
-				}
+			$dest = 'assets/wp-content/uploads/elementor/css/' . $base;
+			if ( $this->writer->copy( $file, $dest ) ) {
+				$this->copied_files++;
 			}
 		}
 
-		// Shared kit / global / custom widget styles.
-		foreach ( glob( $css_dir . '/*.css' ) as $file ) {
-			$base = basename( $file );
-			if ( isset( $copied[ $base ] ) ) {
-				continue;
-			}
-			if ( preg_match( '/^(global|post-\d+|custom-|base-).*\.css$/', $base ) ) {
-				$dest = 'assets/wp-content/uploads/elementor/css/' . $base;
-				if ( $this->writer->copy( $file, $dest ) ) {
-					$this->copied_files++;
-				}
-			}
-		}
+		$this->copy_css_dir( 'plugins/elementor/assets/css/conditionals' );
 
 		// Google fonts CSS + font files used by Elementor.
 		$fonts_css_dir = WP_CONTENT_DIR . '/uploads/elementor/google-fonts/css';
@@ -215,6 +200,7 @@ class Assets_Copier {
 			'plugins/elementor/assets/css/conditionals/e-swiper.min.css',
 			'plugins/elementor/assets/css/widget-heading.min.css',
 			'plugins/elementor/assets/css/widget-image.min.css',
+			'plugins/elementor/assets/css/widget-text-editor.min.css',
 			'plugins/elementor/assets/css/widget-image-carousel.min.css',
 			'plugins/elementor/assets/css/widget-icon-box.min.css',
 			'plugins/elementor/assets/css/widget-icon-list.min.css',
@@ -225,9 +211,24 @@ class Assets_Copier {
 			'plugins/elementor-pro/assets/css/widget-form.min.css',
 			'plugins/elementor-pro/assets/css/widget-nav-menu.min.css',
 			'plugins/elementor-pro/assets/css/widget-carousel-module-base.min.css',
+			'plugins/elementor/assets/css/widget-icon.min.css',
+			'plugins/elementor/assets/css/widget-button.min.css',
 			'plugins/elementskit-lite/modules/elementskit-icon-pack/assets/css/ekiticons.css',
 			'plugins/elementskit-lite/widgets/init/assets/css/widget-styles.css',
 			'plugins/elementskit-lite/widgets/init/assets/css/responsive.css',
+			'plugins/elementskit-lite/widgets/init/assets/css/common.css',
+			'plugins/elementskit-lite/widgets/init/assets/css/client-logo.css',
+			'plugins/elementskit-lite/widgets/init/assets/css/button.css',
+			'plugins/elementskit-lite/widgets/init/assets/css/funfact.css',
+			'plugins/elementskit-lite/widgets/init/assets/css/icon-box.css',
+			'plugins/elementskit-lite/widgets/init/assets/css/nav-menu.css',
+			'plugins/elementskit-lite/widgets/init/assets/css/header-offcanvas.css',
+			'plugins/elementskit-lite/widgets/init/assets/css/header-search.css',
+			'plugins/elementskit-lite/widgets/init/assets/css/header-info.css',
+			'plugins/slide-everything-for-elementor/scripts/main.js',
+			'plugins/elementor/assets/lib/font-awesome/css/all.min.css',
+			'plugins/elementor/assets/lib/font-awesome/css/v4-shims.min.css',
+			'uploads/elementor/css/custom-pro-widget-nav-menu.min.css',
 			'plugins/elementor/assets/lib/swiper/v8/swiper.min.js',
 			'plugins/elementor/assets/js/webpack.runtime.min.js',
 			'plugins/elementor/assets/js/frontend-modules.min.js',
@@ -253,6 +254,7 @@ class Assets_Copier {
 		$font_dirs = array(
 			'plugins/elementor/assets/lib/eicons/fonts',
 			'plugins/elementskit-lite/modules/elementskit-icon-pack/assets/fonts',
+			'plugins/elementor/assets/lib/font-awesome/webfonts',
 		);
 		foreach ( $font_dirs as $dir_rel ) {
 			$abs = WP_CONTENT_DIR . '/' . $dir_rel;
@@ -266,6 +268,30 @@ class Assets_Copier {
 				if ( $this->writer->copy( $file, 'assets/wp-content/' . $dir_rel . '/' . basename( $file ) ) ) {
 					$this->copied_files++;
 				}
+			}
+		}
+
+		// ElementsKit split the old widget-styles.css into per-widget files.
+		$this->copy_css_dir( 'plugins/elementskit-lite/widgets/init/assets/css' );
+		$this->copy_css_dir( 'plugins/elementskit/widgets/init/assets/css' );
+	}
+
+	/**
+	 * Copy every .css file from a wp-content-relative directory.
+	 *
+	 * @param string $dir_rel Directory under wp-content.
+	 */
+	private function copy_css_dir( $dir_rel ) {
+		$abs = WP_CONTENT_DIR . '/' . $dir_rel;
+		if ( ! is_dir( $abs ) ) {
+			return;
+		}
+		foreach ( glob( $abs . '/*.css' ) as $file ) {
+			if ( ! is_file( $file ) ) {
+				continue;
+			}
+			if ( $this->writer->copy( $file, 'assets/wp-content/' . $dir_rel . '/' . basename( $file ) ) ) {
+				$this->copied_files++;
 			}
 		}
 	}

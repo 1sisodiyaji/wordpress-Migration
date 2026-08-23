@@ -9,6 +9,7 @@ import {
   stopEditor,
   startGenerate,
   startScrape,
+  syncPluginFromLocalWp,
   uploadPluginExport,
   uploadWpParts,
   type Project,
@@ -125,14 +126,13 @@ export default function App() {
 
   async function handleCreate(body: {
     name: string;
-    url?: string;
     sourceType: SourceType;
     wpParts?: WpUploadParts;
     pluginZip?: File;
     pluginPull?: PluginPullCreds;
   }) {
     setError(null);
-    const project = await createProject({ name: body.name, url: body.url, sourceType: body.sourceType });
+    const project = await createProject({ name: body.name, sourceType: body.sourceType });
     if (body.wpParts) await uploadWpParts(project.slug, body.wpParts);
     setShowNew(false);
     await openProject(project.slug);
@@ -145,6 +145,13 @@ export default function App() {
     if (!active) return;
     setError(null);
     await startScrape(active.slug);
+    await refresh();
+  }
+
+  async function handleSyncFromWp() {
+    if (!active) return;
+    setError(null);
+    await syncPluginFromLocalWp(active.slug, { copyMedia: true });
     await refresh();
   }
 
@@ -256,6 +263,7 @@ export default function App() {
             project={active}
             onBack={() => navigate({ kind: "dashboard" })}
             onScrape={handleScrape}
+            onSyncFromWp={handleSyncFromWp}
             onGenerate={handleGenerate}
             onOpenEditor={handleOpenEditor}
             onStopEditor={handleStopEditor}

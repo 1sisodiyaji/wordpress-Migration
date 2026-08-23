@@ -92,6 +92,40 @@ class Widget_Assets {
 			'plugins/elementor/assets/css/widget-gallery.min.css',
 			'plugins/elementor/assets/css/conditionals/lightbox.min.css',
 		),
+		'text-editor'           => array(
+			'plugins/elementor/assets/css/widget-text-editor.min.css',
+		),
+		'icon'                  => array(
+			'plugins/elementor/assets/css/widget-icon.min.css',
+		),
+		'button'                => array(
+			'plugins/elementor/assets/css/widget-button.min.css',
+		),
+		'elementskit-client-logo' => array(
+			'plugins/elementor/assets/lib/swiper/v8/css/swiper.min.css',
+			'plugins/elementor/assets/css/conditionals/e-swiper.min.css',
+			'plugins/elementskit-lite/widgets/init/assets/css/client-logo.css',
+			'plugins/elementskit-lite/widgets/init/assets/css/common.css',
+		),
+		'elementskit-button'    => array(
+			'plugins/elementskit-lite/widgets/init/assets/css/button.css',
+		),
+		'elementskit-funfact'   => array(
+			'plugins/elementskit-lite/widgets/init/assets/css/funfact.css',
+		),
+		'elementskit-icon-box'  => array(
+			'plugins/elementskit-lite/widgets/init/assets/css/icon-box.css',
+		),
+		'elementskit-nav-menu'  => array(
+			'plugins/elementskit-lite/widgets/init/assets/css/nav-menu.css',
+		),
+		'ekit-nav-menu'         => array(
+			'plugins/elementskit-lite/widgets/init/assets/css/nav-menu.css',
+		),
+		'miga_slide_everything_title' => array(
+			'plugins/elementor/assets/lib/swiper/v8/css/swiper.min.css',
+			'plugins/elementor/assets/css/conditionals/e-swiper.min.css',
+		),
 	);
 
 	/**
@@ -124,6 +158,14 @@ class Widget_Assets {
 		'nav-menu'             => array(
 			'plugins/elementor-pro/assets/lib/smartmenus/jquery.smartmenus.min.js',
 		),
+
+		'elementskit-client-logo' => array(
+			'plugins/elementor/assets/lib/swiper/v8/swiper.min.js',
+		),
+		'miga_slide_everything_title' => array(
+			'plugins/elementor/assets/lib/swiper/v8/swiper.min.js',
+			'plugins/slide-everything-for-elementor/scripts/main.js',
+		),
 	);
 
 	/**
@@ -136,10 +178,13 @@ class Widget_Assets {
 		'plugins/elementor/assets/lib/eicons/css/elementor-icons.min.css',
 		'plugins/elementor/assets/css/widget-heading.min.css',
 		'plugins/elementor/assets/css/widget-image.min.css',
+		'plugins/elementor/assets/css/widget-text-editor.min.css',
 		'plugins/elementor/assets/css/widget-divider.min.css',
 		'plugins/elementskit-lite/modules/elementskit-icon-pack/assets/css/ekiticons.css',
 		'plugins/elementskit-lite/widgets/init/assets/css/widget-styles.css',
 		'plugins/elementskit-lite/widgets/init/assets/css/responsive.css',
+		'plugins/elementskit-lite/widgets/init/assets/css/common.css',
+		'plugins/elementskit-lite/widgets/init/assets/css/client-logo.css',
 	);
 
 	/**
@@ -226,6 +271,17 @@ class Widget_Assets {
 			'styles'      => array( 'plugins/locomotive-scroll/locomotive-scroll.css' ),
 			'scripts'     => array( 'plugins/locomotive-scroll/locomotive-scroll.min.js' ),
 			'htmlSignals' => array( 'locomotive-scroll', 'data-scroll', 'c-scrollbar' ),
+		),
+		'slide-everything-for-elementor/miga_slide_everything.php' => array(
+			'styles'      => array(
+				'plugins/elementor/assets/lib/swiper/v8/css/swiper.min.css',
+				'plugins/elementor/assets/css/conditionals/e-swiper.min.css',
+			),
+			'scripts'     => array(
+				'plugins/elementor/assets/lib/swiper/v8/swiper.min.js',
+				'plugins/slide-everything-for-elementor/scripts/main.js',
+			),
+			'htmlSignals' => array( 'miga_slide_everything', 'miga-slide' ),
 		),
 	);
 
@@ -323,6 +379,7 @@ class Widget_Assets {
 			'postCss'    => is_readable( WP_CONTENT_DIR . '/uploads/elementor/css/post-' . $post_id . '.css' )
 				? 'uploads/elementor/css/post-' . $post_id . '.css'
 				: null,
+			'inlineCss'  => null,
 		);
 	}
 
@@ -446,7 +503,9 @@ class Widget_Assets {
 			if ( 0 === strpos( $widget, 'elementskit-' ) || 0 === strpos( $widget, 'ekit-' ) ) {
 				$styles[] = 'plugins/elementskit-lite/widgets/init/assets/css/widget-styles.css';
 				$styles[] = 'plugins/elementskit-lite/widgets/init/assets/css/responsive.css';
+				$styles[] = 'plugins/elementskit-lite/widgets/init/assets/css/common.css';
 				$styles[] = 'plugins/elementskit-lite/modules/elementskit-icon-pack/assets/css/ekiticons.css';
+				$styles   = array_merge( $styles, self::glob_css_dir( 'plugins/elementskit-lite/widgets/init/assets/css' ) );
 			}
 		}
 
@@ -540,11 +599,25 @@ class Widget_Assets {
 	}
 
 	/**
-	 * Infer widgets / style signals from rendered HTML.
+	 * List .css files in a wp-content-relative directory.
 	 *
-	 * @param string   $html    HTML or content.
-	 * @param string[] $widgets Accumulator.
+	 * @param string $dir_rel Directory under wp-content.
+	 * @return string[]
 	 */
+	private static function glob_css_dir( $dir_rel ) {
+		$abs = WP_CONTENT_DIR . '/' . $dir_rel;
+		if ( ! is_dir( $abs ) ) {
+			return array();
+		}
+		$out = array();
+		foreach ( glob( $abs . '/*.css' ) as $file ) {
+			if ( is_file( $file ) ) {
+				$out[] = $dir_rel . '/' . basename( $file );
+			}
+		}
+		return $out;
+	}
+
 	private function scan_html_signals( $html, array &$widgets ) {
 		if ( ! is_string( $html ) || '' === $html ) {
 			return;
@@ -552,6 +625,12 @@ class Widget_Assets {
 
 		if ( false !== stripos( $html, 'swiper' ) || false !== stripos( $html, 'image-carousel' ) ) {
 			$widgets[] = 'image-carousel';
+		}
+		if ( false !== stripos( $html, 'miga_slide_everything' ) || false !== stripos( $html, 'miga-slide' ) ) {
+			$widgets[] = 'miga_slide_everything_title';
+		}
+		if ( false !== stripos( $html, 'elementskit-clients-slider' ) || false !== stripos( $html, 'ekit-client-logo' ) ) {
+			$widgets[] = 'elementskit-client-logo';
 		}
 		if ( false !== stripos( $html, 'ekit-' ) || false !== stripos( $html, 'elementskit' ) ) {
 			$widgets[] = 'elementskit-widget';

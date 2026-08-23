@@ -6,6 +6,7 @@ interface Props {
   project: Project;
   onBack: () => void;
   onScrape: () => Promise<void>;
+  onSyncFromWp: () => Promise<void>;
   onGenerate: () => Promise<void>;
   onOpenEditor: () => Promise<void>;
   onStopEditor: () => Promise<void>;
@@ -27,6 +28,7 @@ export function ProjectFlow({
   project,
   onBack,
   onScrape,
+  onSyncFromWp,
   onGenerate,
   onOpenEditor,
   onStopEditor,
@@ -110,9 +112,7 @@ export function ProjectFlow({
             <p>
               {isPlugin
                 ? "Imported from a wp-grape-export bundle (shortcodes, Elementor & Theme Builder resolved inside WordPress)."
-                : meta?.sourceType === "files"
-                  ? "Upload SQL, wp-content (.zip), and wp-config.php as separate files."
-                  : "Crawl the live website and save HTML, CSS, and assets."}
+                : "Upload SQL, wp-content (.zip), and wp-config.php as separate files, then start import."}
             </p>
 
             {meta?.sourceType === "files" && (
@@ -158,14 +158,30 @@ export function ProjectFlow({
                     ? "Importing…"
                     : scrapeStep === "done"
                       ? "Re-import"
-                      : meta?.sourceType === "files"
-                        ? "Start import"
-                        : "Start scrape"}
+                      : "Start import"}
                 </button>
               </div>
             )}
 
-            {isPlugin && scrapeStep === "active" && <p className="muted">Importing bundle…</p>}
+            {isPlugin && (
+              <div className="step-actions">
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={scrapeStep === "active" || generateStep === "active"}
+                  onClick={onSyncFromWp}
+                >
+                  {scrapeStep === "active" || generateStep === "active"
+                    ? "Syncing from local WP…"
+                    : scrapeStep === "done"
+                      ? "Resync from localhost:8084"
+                      : "Sync from localhost:8084"}
+                </button>
+              </div>
+            )}
+            {isPlugin && scrapeStep === "active" && (
+              <p className="muted">Exporting in Docker and importing — plugin ZIP upload is not needed.</p>
+            )}
           </div>
         </li>
 

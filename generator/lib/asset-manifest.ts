@@ -271,6 +271,8 @@ function isCanvasScriptHref(href: string): boolean {
     href.includes("/elementor-pro/assets/lib/smartmenus/") ||
     href.includes("/elementor-pro/assets/lib/sticky/") ||
     (href.includes("/elementskit-lite/") && href.endsWith(".js")) ||
+    href.includes("/slide-everything-for-elementor/") ||
+    (href.includes("/essential-addons") && href.endsWith(".js")) ||
     (href.includes("/aos/") && href.endsWith(".js")) ||
     (href.includes("/gsap") && href.endsWith(".js")) ||
     (href.includes("/locomotive-scroll/") && href.endsWith(".js"))

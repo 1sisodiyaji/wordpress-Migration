@@ -302,6 +302,14 @@ export function pageCanvasAssets(
     if (href) profileScripts.push(href);
   }
 
+  for (const extra of [
+    "plugins/elementor/assets/lib/swiper/v8/swiper.min.js",
+    "plugins/slide-everything-for-elementor/scripts/main.js",
+  ]) {
+    const href = hrefIfAssetExists(projectAssetsRoot, extra);
+    if (href) profileScripts.push(href);
+  }
+
   return {
     styles: [...new Set([...diskStyles, ...profileStyles, ...site.globalStyles])],
     scripts: [...new Set([...site.globalScripts, ...profileScripts])],

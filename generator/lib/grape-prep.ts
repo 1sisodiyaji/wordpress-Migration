@@ -17,6 +17,24 @@ export function rewriteAssetUrls(html: string): string {
     .replace(/(?<=["'(])\/?wp-content\//g, "/assets/wp-content/");
 }
 
+/** Drop srcset candidates that were not copied (common cause of missing logos). */
+export function pruneMissingSrcset(html: string, assetsRoot: string): string {
+  return html.replace(/\ssrcset=["']([^"']*)["']/gi, (full, srcset: string) => {
+    const kept = srcset
+      .split(",")
+      .map((part) => part.trim())
+      .filter((part) => {
+        const url = part.split(/\s+/)[0] ?? "";
+        if (!url.startsWith("/assets/")) return true;
+        const rel = url.replace(/^\/assets\//, "").split("?")[0] ?? "";
+        const abs = path.join(assetsRoot, rel);
+        return fs.existsSync(abs) && fs.statSync(abs).size > 0;
+      });
+    if (!kept.length) return "";
+    return ` srcset="${kept.join(", ")}"`;
+  });
+}
+
 /** Canvas stylesheet that reveals Elementor widgets before front-end JS runs animations. */
 export const ELEMENTOR_PREVIEW_STYLE_HREF = "/assets/inline/styles/elementor-preview.css";
 /** Makes Elementor kit CSS variables resolve inside the GrapeJS iframe (no WP body class). */
@@ -40,13 +58,15 @@ const ELEMENTOR_PREVIEW_STYLE_CONTENT = `/* Elementor marks animated widgets inv
  * Strip Elementor animation gating + force eager images.
  * GrapeJS iframes often never fire IntersectionObserver for loading="lazy".
  */
-export function prepareGrapeHtmlForCanvas(html: string): string {
-  return rewriteAssetUrls(html)
+export function prepareGrapeHtmlForCanvas(html: string, assetsRoot?: string): string {
+  let out = rewriteAssetUrls(html)
     .replace(/\s*elementor-invisible\b/g, "")
     .replace(/\s*elementor-animation-\S+/g, "")
     .replace(/\sloading=["']lazy["']/gi, ' loading="eager"')
     .replace(/\sdecoding=["']async["']/gi, "")
     .replace(/\sfetchpriority=["'][^"']*["']/gi, "");
+  if (assetsRoot) out = pruneMissingSrcset(out, assetsRoot);
+  return out;
 }
 
 export const ELEMENTOR_CANVAS_FIX_STYLE_HREF = "/assets/inline/styles/elementor-canvas-fixes.css";
@@ -266,6 +286,7 @@ export const CRITICAL_CANVAS_CSS: string[] = [
   "plugins/elementor/assets/css/conditionals/e-swiper.min.css",
   "plugins/elementor/assets/css/widget-heading.min.css",
   "plugins/elementor/assets/css/widget-image.min.css",
+  "plugins/elementor/assets/css/widget-text-editor.min.css",
   "plugins/elementor/assets/css/widget-image-carousel.min.css",
   "plugins/elementor/assets/css/widget-button.min.css",
   "plugins/elementor/assets/css/widget-icon-box.min.css",
@@ -279,10 +300,33 @@ export const CRITICAL_CANVAS_CSS: string[] = [
   "plugins/elementor-pro/assets/css/widget-nav-menu.min.css",
   "plugins/elementor-pro/assets/css/widget-call-to-action.min.css",
   "plugins/elementor-pro/assets/css/widget-carousel-module-base.min.css",
+  "plugins/elementor/assets/css/widget-icon.min.css",
+  "plugins/elementor/assets/css/widget-button.min.css",
   "plugins/elementskit-lite/modules/elementskit-icon-pack/assets/css/ekiticons.css",
   "plugins/elementskit-lite/widgets/init/assets/css/widget-styles.css",
   "plugins/elementskit-lite/widgets/init/assets/css/responsive.css",
+  "plugins/elementskit-lite/widgets/init/assets/css/common.css",
+  "plugins/elementskit-lite/widgets/init/assets/css/client-logo.css",
+  "plugins/elementskit-lite/widgets/init/assets/css/button.css",
+  "plugins/elementskit-lite/widgets/init/assets/css/funfact.css",
+  "plugins/elementskit-lite/widgets/init/assets/css/icon-box.css",
+  "plugins/elementskit-lite/widgets/init/assets/css/nav-menu.css",
+  "plugins/elementskit-lite/widgets/init/assets/css/header-offcanvas.css",
+  "plugins/elementskit-lite/widgets/init/assets/css/header-search.css",
+  "plugins/elementskit-lite/widgets/init/assets/css/header-info.css",
+  "uploads/elementor/css/custom-pro-widget-nav-menu.min.css",
   "themes/astra/assets/css/minified/main.min.css",
+];
+
+const CRITICAL_FONT_DIRS: string[] = [
+  "plugins/elementor/assets/lib/eicons/fonts",
+  "plugins/elementor/assets/lib/font-awesome/webfonts",
+  "plugins/elementskit-lite/modules/elementskit-icon-pack/assets/fonts",
+];
+
+const CRITICAL_JS: string[] = [
+  "plugins/elementor/assets/lib/swiper/v8/swiper.min.js",
+  "plugins/slide-everything-for-elementor/scripts/main.js",
 ];
 
 /**
@@ -313,6 +357,96 @@ export function ensureCriticalCanvasCss(
       break;
     }
   }
+
+  for (const dirRel of CRITICAL_FONT_DIRS) {
+    const destDir = path.join(projectAssetsDir, "wp-content", dirRel);
+    for (const root of fallbackRoots) {
+      if (!root || !fs.existsSync(root)) continue;
+      const srcDir = [
+        path.join(root, "wp-content", dirRel),
+        path.join(root, "assets", "wp-content", dirRel),
+      ].find((p) => fs.existsSync(p));
+      if (!srcDir) continue;
+      fs.mkdirSync(destDir, { recursive: true });
+      for (const file of fs.readdirSync(srcDir)) {
+        const from = path.join(srcDir, file);
+        const to = path.join(destDir, file);
+        if (!fs.statSync(from).isFile()) continue;
+        if (!fs.existsSync(to) || fs.statSync(to).size === 0) {
+          fs.copyFileSync(from, to);
+          copied.push(`${dirRel}/${file}`);
+        }
+      }
+      break;
+    }
+  }
+
+  for (const dirRel of [
+    "plugins/elementskit-lite/widgets/init/assets/css",
+    "plugins/elementskit/widgets/init/assets/css",
+    "plugins/elementor/assets/css/conditionals",
+  ]) {
+    for (const root of fallbackRoots) {
+      if (!root || !fs.existsSync(root)) continue;
+      const srcDir = [
+        path.join(root, "wp-content", dirRel),
+        path.join(root, "assets", "wp-content", dirRel),
+      ].find((p) => fs.existsSync(p));
+      if (!srcDir) continue;
+      const destDir = path.join(projectAssetsDir, "wp-content", dirRel);
+      fs.mkdirSync(destDir, { recursive: true });
+      for (const file of fs.readdirSync(srcDir)) {
+        if (!file.endsWith(".css")) continue;
+        const from = path.join(srcDir, file);
+        const to = path.join(destDir, file);
+        if (!fs.existsSync(from) || !fs.statSync(from).isFile()) continue;
+        if (!fs.existsSync(to) || fs.statSync(to).size === 0) {
+          fs.copyFileSync(from, to);
+          copied.push(`${dirRel}/${file}`);
+        }
+      }
+    }
+  }
+
+  const kitCssDirRel = "uploads/elementor/css";
+  for (const root of fallbackRoots) {
+    if (!root || !fs.existsSync(root)) continue;
+    const srcDir = [
+      path.join(root, "wp-content", kitCssDirRel),
+      path.join(root, "assets", "wp-content", kitCssDirRel),
+    ].find((p) => fs.existsSync(p));
+    if (!srcDir) continue;
+    const destDir = path.join(projectAssetsDir, "wp-content", kitCssDirRel);
+    fs.mkdirSync(destDir, { recursive: true });
+    for (const file of fs.readdirSync(srcDir)) {
+      if (!file.endsWith(".css")) continue;
+      if (!/^(custom-|base-|global|local-)/.test(file)) continue;
+      const from = path.join(srcDir, file);
+      const to = path.join(destDir, file);
+      if (!fs.existsSync(from) || !fs.statSync(from).isFile()) continue;
+      if (!fs.existsSync(to) || fs.statSync(to).size === 0) {
+        fs.copyFileSync(from, to);
+        copied.push(`${kitCssDirRel}/${file}`);
+      }
+    }
+  }
+
+  for (const rel of CRITICAL_JS) {
+    const dest = path.join(projectAssetsDir, "wp-content", rel);
+    if (fs.existsSync(dest) && fs.statSync(dest).size > 0) continue;
+    for (const root of fallbackRoots) {
+      if (!root || !fs.existsSync(root)) continue;
+      const src = [
+        path.join(root, "wp-content", rel),
+        path.join(root, "assets", "wp-content", rel),
+      ].find((p) => fs.existsSync(p) && fs.statSync(p).size > 0);
+      if (!src) continue;
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.copyFileSync(src, dest);
+      copied.push(rel);
+      break;
+    }
+  }
   return copied;
 }
 
@@ -330,6 +464,19 @@ export function collectCanvasStyles(assetsRoot: string, postId?: number): string
 
   for (const href of criticalCanvasStyleHrefs(assetsRoot)) styles.push(href);
 
+  for (const dirRel of [
+    "plugins/elementskit-lite/widgets/init/assets/css",
+    "plugins/elementskit/widgets/init/assets/css",
+    "plugins/elementor/assets/css/conditionals",
+  ]) {
+    const absDir = path.join(wpRoot, dirRel);
+    if (!fs.existsSync(absDir)) continue;
+    for (const file of fs.readdirSync(absDir).sort()) {
+      if (!file.endsWith(".css")) continue;
+      styles.push(`/assets/wp-content/${dirRel}/${file}`);
+    }
+  }
+
   const fixed = ["uploads/elementor/google-fonts/css/manrope.css", "uploads/elementor/google-fonts/css/roboto.css"];
   for (const rel of fixed) pushIfExists(styles, assetsRoot, rel);
 
@@ -345,7 +492,8 @@ export function collectCanvasStyles(assetsRoot: string, postId?: number): string
       if (!file.endsWith(".css")) continue;
       if (postId && file === `post-${postId}.css`) continue;
       // Shared kit/widget chrome only — other pages' post-*.css conflicts.
-      if (/^(custom-|base-|global)/.test(file)) {
+      // Kit typography lives in local-*-frontend-*.css (Improved CSS Loading).
+      if (/^(custom-|base-|global|local-)/.test(file)) {
         styles.push(`/assets/wp-content/uploads/elementor/css/${file}`);
       }
     }
@@ -380,7 +528,8 @@ export function extractInlineElementorStyles(
   const relUnderAssets = path.posix.join("inline", "styles", fileName);
   const abs = path.join(projectAssetsDir, ...relUnderAssets.split("/"));
   fs.mkdirSync(path.dirname(abs), { recursive: true });
-  fs.writeFileSync(abs, `/* Extracted from rendered Elementor HTML */\n${chunks.join("\n\n")}\n`, "utf8");
+  const css = rewriteAssetUrls(`/* Extracted from rendered Elementor HTML */\n${chunks.join("\n\n")}\n`);
+  fs.writeFileSync(abs, css, "utf8");
 
   return { html: stripped, styleHrefs: [`/assets/${relUnderAssets}`] };
 }
@@ -480,8 +629,8 @@ export function patchCssAssetUrls(css: string, cssFileRelUnderWpContent: string)
       'url("/assets/wp-content/$1")',
     )
     .replace(
-      /url\(\s*["']?\.\.\/fonts\/([^)]+)\)/g,
-      `url("/assets/wp-content/${siblingFonts}/$1")`,
+      /url\(\s*(['"]?)\.\.\/fonts\/([^'")\s?]+)(?:\?[^'")\s]*)?\1\s*\)/g,
+      `url("/assets/wp-content/${siblingFonts}/$2")`,
     );
 }
 

@@ -14,6 +14,7 @@ import {
   writeSiteFontsStyle,
 } from "./grape-prep";
 import { pageKeyToComponent } from "./names";
+import { cleanGeneratedProject } from "./fs-clean";
 import { writeCanvasInlineScripts, readAssetManifest } from "./asset-manifest";
 import { getMigratedDataDir } from "../../lib/wp/config";
 import { pageCanvasAssets, readPluginSite, type PluginSite } from "./read-plugin-site";
@@ -28,6 +29,7 @@ import {
   rewriteLinkedCssForBlocks,
 } from "./elementor-to-grape";
 import { assertValidAppTsx, buildAppTsx } from "./app-shell-template";
+import { buildGrapeRegionTsx, GRAPE_EDITOR_CSS } from "./grape-region-template";
 
 const GRAPE_BLOCKS_CSS = "/assets/inline/styles/grape-blocks.css";
 
@@ -64,7 +66,7 @@ export async function generateReactGrapeProjectV2(opts: {
   const projectDir = getProjectDir(opts.siteSlug);
   const port = opts.port ?? 3001;
 
-  cleanProjectDir(projectDir);
+  cleanGeneratedProject(projectDir);
 
   fs.mkdirSync(path.join(projectDir, "src", "components", "layout"), { recursive: true });
   fs.mkdirSync(path.join(projectDir, "src", "components", "grape"), { recursive: true });
@@ -81,6 +83,7 @@ export async function generateReactGrapeProjectV2(opts: {
 
   // Fill gaps when the WP export missed Elementor frontend / widget / theme CSS.
   const tryDataRoots = [
+    path.join(process.cwd(), "try-data", "radius-ois", "www"),
     path.join(process.cwd(), "try-data", "smartco-20260705T182508Z-3-001", "smartco"),
     path.join(process.cwd(), "try-data", "orbit-commercial-bank", "Orbit-Commercial-Bank"),
   ];
@@ -107,16 +110,6 @@ export async function generateReactGrapeProjectV2(opts: {
   return projectDir;
 }
 
-function cleanProjectDir(projectDir: string): void {
-  if (!fs.existsSync(projectDir)) {
-    fs.mkdirSync(projectDir, { recursive: true });
-    return;
-  }
-  for (const entry of ["src", "public", "index.html", "vite.config.ts", "tsconfig.json", "package.json"]) {
-    const full = path.join(projectDir, entry);
-    if (fs.existsSync(full)) fs.rmSync(full, { recursive: true, force: true });
-  }
-}
 
 function copyAssets(src: string, dest: string): void {
   if (!fs.existsSync(src)) return;
@@ -329,6 +322,55 @@ function blockModeCanvasStyles(fullStyles: string[]): string[] {
   return [GRAPE_BLOCKS_CSS, ...fullStyles.filter((s) => s !== GRAPE_BLOCKS_CSS)];
 }
 
+/** Extract <style> from Elementor library templates (nested shortcodes / logo carousels). */
+function extractLibraryTemplateStyles(siteSlug: string, assetsRoot: string): string[] {
+  const hrefs: string[] = [];
+  const seen = new Set<string>();
+  const dirs = [
+    path.join(getMigratedDataDir(siteSlug), "templates"),
+    path.join(
+      process.cwd(),
+      "try-data",
+      "radius-ois",
+      "www",
+      "wp-content",
+      "uploads",
+      "wp-grape-export",
+      "latest",
+      "templates",
+    ),
+  ];
+  for (const dir of dirs) {
+    if (!fs.existsSync(dir)) continue;
+    for (const file of fs.readdirSync(dir)) {
+      if (!file.endsWith(".html")) continue;
+      const id = file.replace(/-.*$/, "").replace(/\.html$/i, "");
+      if (!id || seen.has(id)) continue;
+      const html = fs.readFileSync(path.join(dir, file), "utf8");
+      if (!/<style/i.test(html)) continue;
+      const extracted = extractInlineElementorStyles(html, assetsRoot, {
+        name: `template-${id}-inline`,
+      });
+      if (extracted.styleHrefs.length) {
+        seen.add(id);
+        hrefs.push(...extracted.styleHrefs);
+      }
+    }
+  }
+  return hrefs;
+}
+
+/** Copy plugin-export sidecar CSS (Elementor inline styles saved as pages/{key}/inline.css). */
+function copyPageExportInlineCss(siteSlug: string, pageKey: string, assetsRoot: string): string[] {
+  const src = path.join(getMigratedDataDir(siteSlug), "pages", pageKey, "inline.css");
+  if (!fs.existsSync(src) || fs.statSync(src).size === 0) return [];
+  const rel = `inline/styles/page-${pageKey}-export.css`;
+  const dest = path.join(assetsRoot, rel);
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  fs.writeFileSync(dest, rewriteAssetUrls(fs.readFileSync(src, "utf8")), "utf8");
+  return [`/assets/${rel}`];
+}
+
 function writeData(projectDir: string, site: PluginSite, elementorKitClasses: string[] = []): void {
   const assetsRoot = path.join(projectDir, "public", "assets");
 
@@ -342,7 +384,12 @@ function writeData(projectDir: string, site: PluginSite, elementorKitClasses: st
     assetsRoot,
     { name: "layout-footer-inline" },
   );
-  const layoutStyleHrefs = [...headerExtracted.styleHrefs, ...footerExtracted.styleHrefs];
+  const libraryStyleHrefs = extractLibraryTemplateStyles(site.slug, assetsRoot);
+  const layoutStyleHrefs = [
+    ...headerExtracted.styleHrefs,
+    ...footerExtracted.styleHrefs,
+    ...libraryStyleHrefs,
+  ];
 
   // Page-level responsive CSS for header/footer Elementor templates (blocks path).
   const layoutResponsiveHrefs: string[] = [];
@@ -386,12 +433,13 @@ function writeData(projectDir: string, site: PluginSite, elementorKitClasses: st
 
     const mirrored = mirrorRemoteMediaUrls(rewriteAssetUrls(p.contentHtml), assetsRoot);
     const extracted = extractInlineElementorStyles(mirrored, assetsRoot, { postId: p.postId });
-    const preparedHtml = prepareGrapeHtmlForCanvas(extracted.html);
+    const preparedHtml = prepareGrapeHtmlForCanvas(extracted.html, assetsRoot);
     const htmlIsBlank = isExportHtmlBlank(preparedHtml);
     const hasBlocks = Array.isArray(grapeBlocks) && grapeBlocks.length > 0;
     // Prefer rendered HTML when present; fall back to Elementor→blocks when HTML is empty.
     const contentMode = !htmlIsBlank ? ("html" as const) : hasBlocks ? ("blocks" as const) : ("html" as const);
     const rewrittenPostCss = writeRewrittenPostCss(assetsRoot, p.postId, contentMode);
+    const exportInlineHrefs = copyPageExportInlineCss(site.slug, p.key, assetsRoot);
     const inlineHrefs =
       contentMode === "blocks"
         ? extracted.styleHrefs.map((href) => rewriteLinkedCssForBlocks(assetsRoot, href))
@@ -403,7 +451,8 @@ function writeData(projectDir: string, site: PluginSite, elementorKitClasses: st
       ...layoutResponsiveHrefs,
       ...(pageResponsiveHref ? [pageResponsiveHref] : []),
       ...(pageCustomCssHref ? [pageCustomCssHref] : []),
-      ...(rewrittenPostCss && contentMode === "blocks" ? [rewrittenPostCss] : []),
+      ...(rewrittenPostCss ? [rewrittenPostCss] : []),
+      ...exportInlineHrefs,
       ...inlineHrefs,
     ]);
 
@@ -448,8 +497,8 @@ function writeData(projectDir: string, site: PluginSite, elementorKitClasses: st
     path.join(projectDir, "src", "data", "layout.json"),
     JSON.stringify(
       {
-        headerHtml: prepareGrapeHtmlForCanvas(headerExtracted.html),
-        footerHtml: prepareGrapeHtmlForCanvas(footerExtracted.html),
+        headerHtml: prepareGrapeHtmlForCanvas(headerExtracted.html, assetsRoot),
+        footerHtml: prepareGrapeHtmlForCanvas(footerExtracted.html, assetsRoot),
         headerBlocks: site.headerBlocks ?? null,
         footerBlocks: site.footerBlocks ?? null,
         menus: site.menus,
@@ -626,308 +675,7 @@ export function SiteAssets() {
 function writeGrapeRegion(projectDir: string): void {
   fs.writeFileSync(
     path.join(projectDir, "src", "components", "grape", "GrapeRegion.tsx"),
-    `import { useEffect, useRef } from "react";
-import grapesjs from "grapesjs";
-import type { Editor } from "grapesjs";
-import siteData from "../../data/site.json";
-import { getHeaderHtml, getHeaderBlocks } from "../layout/SiteHeader";
-import { getFooterHtml, getFooterBlocks } from "../layout/SiteFooter";
-
-interface Props {
-  pageKey: string;
-  initialHtml: string;
-}
-
-function grapeStorageKey(pageKey: string): string {
-  const fp = siteData.exportFingerprint ?? siteData.slug;
-  const page = siteData.pages.find((p) => p.key === pageKey);
-  const mode = page?.contentMode ?? "html";
-  // v13 = icon CSS vars + rewritten post CSS + custom_css + assets.json wiring
-  return \`grape-\${fp}-\${mode}-layout-v13-\${pageKey}\`;
-}
-
-function hasStoredProject(pageKey: string): boolean {
-  try {
-    const key = grapeStorageKey(pageKey);
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      if (k?.includes(key)) return true;
-    }
-  } catch {
-    /* private browsing */
-  }
-  return false;
-}
-
-function canvasDocument(editor: Editor): Document | null {
-  return editor.Canvas.getFrameEl()?.contentDocument ?? null;
-}
-
-function revealElementorWidgets(editor: Editor): void {
-  const doc = canvasDocument(editor);
-  doc?.querySelectorAll(".elementor-invisible").forEach((el) => {
-    el.classList.remove("elementor-invisible");
-  });
-}
-
-/** GrapeJS iframes often never fire IntersectionObserver — force eager img loads. */
-function forceEagerImages(editor: Editor): void {
-  const doc = canvasDocument(editor);
-  if (!doc) return;
-  doc.querySelectorAll("img").forEach((img) => {
-    img.setAttribute("loading", "eager");
-    img.removeAttribute("decoding");
-    const dataSrc = img.getAttribute("data-src") || img.getAttribute("data-lazy-src");
-    if (dataSrc && (!img.getAttribute("src") || img.getAttribute("src")?.startsWith("data:"))) {
-      img.setAttribute("src", dataSrc);
-    }
-  });
-}
-
-/** WP puts Elementor kit class on <body>; GrapeJS canvas must too for global colors. */
-function applyElementorKitClasses(editor: Editor): void {
-  const doc = canvasDocument(editor);
-  const body = doc?.body;
-  if (!body) return;
-  body.classList.add("elementor");
-  const kits =
-    (siteData as { elementorKitClasses?: string[] }).elementorKitClasses ?? [];
-  for (const cls of kits) {
-    if (cls) body.classList.add(cls);
-  }
-}
-
-function scrollCanvasToHash(editor: Editor, hash: string): void {
-  const id = hash.replace(/^#/, "");
-  if (!id) return;
-  const doc = canvasDocument(editor);
-  const target = doc?.getElementById(id);
-  target?.scrollIntoView({ behavior: "smooth", block: "start" });
-}
-
-/** Shared layout regions used on every page inside the GrapeJS canvas. */
-function registerLayoutComponents(editor: Editor): void {
-  editor.DomComponents.addType("site-header", {
-    model: {
-      defaults: {
-        tagName: "header",
-        name: "Site Header",
-        attributes: { class: "site-header", "data-layout": "header" },
-        droppable: false,
-        removable: false,
-        copyable: false,
-        draggable: false,
-        highlightable: true,
-        stylable: false,
-      },
-    },
-  });
-
-  editor.DomComponents.addType("site-footer", {
-    model: {
-      defaults: {
-        tagName: "footer",
-        name: "Site Footer",
-        attributes: { class: "site-footer", "data-layout": "footer" },
-        droppable: false,
-        removable: false,
-        copyable: false,
-        draggable: false,
-        highlightable: true,
-        stylable: false,
-      },
-    },
-  });
-
-  editor.DomComponents.addType("page-body", {
-    model: {
-      defaults: {
-        tagName: "main",
-        name: "Page Content",
-        attributes: { class: "page-body", "data-layout": "body" },
-        droppable: true,
-        removable: false,
-        copyable: false,
-        draggable: false,
-      },
-    },
-  });
-}
-
-/** True when contentHtml is missing or only an empty document shell. */
-function isBlankCanvasHtml(html: string | undefined | null): boolean {
-  if (!html?.trim()) return true;
-  // Use RegExp() — regex literals with "</" break parsing inside this .tsx file.
-  const stripped = html
-    .replace(/<!DOCTYPE[^>]*>/gi, "")
-    .replace(/<(html|head|body|meta|title)[^>]*>/gi, "")
-    .replace(new RegExp("<\\\\/(html|head|body|title)>", "gi"), "")
-    .replace(/<!--[\\s\\S]*?-->/g, "")
-    .replace(/\\s+/g, "")
-    .trim();
-  return stripped.length < 8;
-}
-
-function usableBodyHtml(html: string | undefined | null): string {
-  if (isBlankCanvasHtml(html)) return "";
-  return html!.trim();
-}
-
-/**
- * HTML mode: one HTML string (header + main + footer) so GrapeJS parses Elementor
- * markup once. Nested component types re-parse and often drop attributes/structure.
- */
-function buildPageHtml(bodyHtml: string): string {
-  const headerHtml = getHeaderHtml();
-  const footerHtml = getFooterHtml();
-  const parts: string[] = [];
-  if (headerHtml) {
-    parts.push(\`<header class="site-header" data-layout="header">\${headerHtml}</header>\`);
-  }
-  parts.push(\`<main class="page-body" data-layout="body">\${bodyHtml}</main>\`);
-  if (footerHtml) {
-    parts.push(\`<footer class="site-footer" data-layout="footer">\${footerHtml}</footer>\`);
-  }
-  return parts.join("\\n");
-}
-
-function buildPageComponents(
-  useBlocks: boolean,
-  grapeBlocks: unknown[] | null,
-  bodyHtml: string,
-): unknown {
-  const headerBlocks = getHeaderBlocks();
-  const footerBlocks = getFooterBlocks();
-  const headerHtml = getHeaderHtml();
-  const footerHtml = getFooterHtml();
-
-  if (!useBlocks && !headerBlocks && !footerBlocks) return buildPageHtml(bodyHtml);
-
-  const tree: unknown[] = [];
-  if (headerBlocks) {
-    tree.push({ type: "site-header", components: headerBlocks });
-  } else if (headerHtml) {
-    tree.push({ type: "site-header", components: headerHtml });
-  }
-
-  if (useBlocks) {
-    tree.push({ type: "page-body", components: grapeBlocks ?? bodyHtml });
-  } else {
-    tree.push({ type: "page-body", components: bodyHtml });
-  }
-
-  if (footerBlocks) {
-    tree.push({ type: "site-footer", components: footerBlocks });
-  } else if (footerHtml) {
-    tree.push({ type: "site-footer", components: footerHtml });
-  }
-  return tree;
-}
-
-/** Full-page GrapeJS editor: shared header/footer + editable page body. */
-export function GrapeRegion({ pageKey, initialHtml }: Props) {
-  const hostRef = useRef<HTMLDivElement>(null);
-  const editorRef = useRef<Editor | null>(null);
-  const pageMeta = siteData.pages.find((p) => p.key === pageKey);
-  const contentMode = pageMeta?.contentMode ?? "html";
-  const blocksKey = JSON.stringify(pageMeta?.grapeBlocks ?? null);
-  const stylesKey = JSON.stringify(pageMeta?.canvasStyles ?? siteData.canvasStyles ?? []);
-  const scriptsKey = JSON.stringify(pageMeta?.canvasScripts ?? siteData.canvasScripts ?? []);
-
-  useEffect(() => {
-    const onHashChange = () => {
-      const editor = editorRef.current;
-      if (editor) scrollCanvasToHash(editor, window.location.hash);
-    };
-    window.addEventListener("hashchange", onHashChange);
-    return () => window.removeEventListener("hashchange", onHashChange);
-  }, [pageKey]);
-
-  useEffect(() => {
-    const host = hostRef.current;
-    if (!host) return;
-
-    const canvasStyles = JSON.parse(stylesKey) as string[];
-    const canvasScripts = JSON.parse(scriptsKey) as string[];
-    const grapeBlocks = JSON.parse(blocksKey) as unknown[] | null;
-    const bodyHtml = usableBodyHtml(initialHtml);
-    const hasBlocks = Array.isArray(grapeBlocks) && grapeBlocks.length > 0;
-    // Prefer Elementor blocks when the rendered HTML shell is empty (common
-    // when the WP plugin exported Elementor JSON but left contentHtml blank).
-    const useBlocks =
-      hasBlocks && (contentMode === "blocks" || !bodyHtml);
-    const initialContent = buildPageComponents(
-      useBlocks,
-      grapeBlocks,
-      bodyHtml || "<div class=\\"empty-page\\">Empty page</div>",
-    );
-    const autoload = hasStoredProject(pageKey);
-    let ready = false;
-
-    const editor = grapesjs.init({
-      container: host,
-      height: "100%",
-      width: "auto",
-      fromElement: false,
-      storageManager: {
-        type: "local",
-        autosave: true,
-        autoload,
-        options: { local: { key: grapeStorageKey(pageKey) } },
-      },
-      // Match Elementor breakpoints so tablet/mobile device mode triggers @media CSS.
-      deviceManager: {
-        devices: [
-          { id: "desktop", name: "Desktop", width: "" },
-          { id: "laptop", name: "Laptop", width: "1366px", widthMedia: "1366px" },
-          { id: "tablet", name: "Tablet", width: "768px", widthMedia: "1024px" },
-          { id: "mobilePortrait", name: "Mobile", width: "375px", widthMedia: "767px" },
-        ],
-      },
-      canvas: { styles: canvasStyles, scripts: canvasScripts },
-    });
-
-    registerLayoutComponents(editor);
-
-    const finishLoad = () => {
-      if (ready) return;
-      ready = true;
-      const wrapper = editor.getWrapper();
-      if (!wrapper || wrapper.components().length === 0) {
-        editor.setComponents(initialContent as Parameters<Editor["setComponents"]>[0]);
-      }
-      revealElementorWidgets(editor);
-      forceEagerImages(editor);
-      applyElementorKitClasses(editor);
-      scrollCanvasToHash(editor, window.location.hash);
-      host.classList.add("grape-ready");
-    };
-
-    editor.on("load", finishLoad);
-    if (!autoload) {
-      editor.setComponents(initialContent as Parameters<Editor["setComponents"]>[0]);
-    }
-    const fallbackTimer = window.setTimeout(finishLoad, 2500);
-
-    editorRef.current = editor;
-    return () => {
-      window.clearTimeout(fallbackTimer);
-      editor.destroy();
-      editorRef.current = null;
-      host.classList.remove("grape-ready");
-    };
-  }, [pageKey, initialHtml, contentMode, blocksKey, stylesKey, scriptsKey]);
-
-  return (
-    <div className="grape-region">
-      <div className="grape-mode-badge" title="Header + page body + footer inside canvas">
-        {contentMode === "blocks" ? "Blocks" : "HTML"}
-      </div>
-      <div ref={hostRef} className="grape-host" />
-    </div>
-  );
-}
-`,
+    buildGrapeRegionTsx(),
     "utf8",
   );
 }
@@ -1099,18 +847,22 @@ html, body, #root { height: 100%; }
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  padding: 0.5rem 1rem;
-  border-bottom: 1px solid #ddd;
-  background: #111827;
-  color: #fff;
+  padding: 0.55rem 1rem;
+  border-bottom: 1px solid #273241;
+  background: linear-gradient(180deg, #141b24 0%, #121820 100%);
+  color: #e8eef4;
   flex-shrink: 0;
   z-index: 40;
+}
+.editor-bar strong {
+  font-size: 0.875rem;
+  letter-spacing: 0.01em;
 }
 .editor-bar-page {
   flex: 1;
   min-width: 0;
-  font-size: 0.875rem;
-  color: #9ca3af;
+  font-size: 0.8125rem;
+  color: #8b9aab;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1126,31 +878,8 @@ html, body, #root { height: 100%; }
   height: 100%;
   display: flex;
   flex-direction: column;
-  position: relative;
 }
-.grape-mode-badge {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  z-index: 20;
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 4px;
-  background: #2563eb;
-  color: #fff;
-  pointer-events: none;
-}
-.grape-host {
-  flex: 1;
-  min-height: 0;
-  height: 100%;
-}
-.grape-host .gjs-editor { height: 100% !important; }
-.grape-host .gjs-cv-canvas,
-.grape-host .gjs-cv-canvas__frames,
-.grape-host .gjs-frame-wrapper {
-  overflow: auto !important;
-}
+${GRAPE_EDITOR_CSS}
 
 /* Floating Pages button (bottom-right) */
 .pages-fab {
@@ -1164,16 +893,16 @@ html, body, #root { height: 100%; }
   padding: 0.7rem 1rem;
   border: none;
   border-radius: 999px;
-  background: #2563eb;
-  color: #fff;
+  background: #0d9488;
+  color: #042f2e;
   font-size: 0.9375rem;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
-  box-shadow: 0 8px 24px rgba(37, 99, 235, 0.45);
+  box-shadow: 0 8px 24px rgba(13, 148, 136, 0.4);
 }
 .pages-fab:hover,
 .pages-fab.is-open {
-  background: #1d4ed8;
+  background: #14b8a6;
 }
 .pages-fab-count {
   min-width: 1.5rem;

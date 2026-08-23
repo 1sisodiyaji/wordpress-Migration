@@ -14,7 +14,6 @@ interface Props {
   onCreate: (body: {
     name: string;
     sourceType: SourceType;
-    url?: string;
     wpParts?: WpUploadParts;
     pluginZip?: File;
     pluginPull?: PluginPullCreds;
@@ -22,17 +21,15 @@ interface Props {
 }
 
 export function NewProjectPanel({ onClose, onCreate }: Props) {
-  const [tab, setTab] = useState<SourceType>("url");
+  const [tab, setTab] = useState<SourceType>("plugin");
   const [name, setName] = useState("");
-  const [url, setUrl] = useState("");
   const [sql, setSql] = useState<File | null>(null);
   const [wpContent, setWpContent] = useState<File | null>(null);
   const [wpConfig, setWpConfig] = useState<File | null>(null);
 
-  // Plugin export state.
   const [pluginMode, setPluginMode] = useState<"zip" | "pull">("zip");
   const [pluginZip, setPluginZip] = useState<File | null>(null);
-  const [wpUrl, setWpUrl] = useState("");
+  const [wpUrl, setWpUrl] = useState("http://localhost:8084");
   const [wpUser, setWpUser] = useState("");
   const [appPassword, setAppPassword] = useState("");
   const [copyMedia, setCopyMedia] = useState(true);
@@ -45,10 +42,6 @@ export function NewProjectPanel({ onClose, onCreate }: Props) {
     setError(null);
     setBusy(true);
     try {
-      if (tab === "url" && !url.trim()) {
-        setError("Enter a website URL");
-        return;
-      }
       if (tab === "files" && !sql && !wpContent && !wpConfig) {
         setError("Upload at least one WordPress file (SQL, wp-content zip, or wp-config.php)");
         return;
@@ -63,18 +56,15 @@ export function NewProjectPanel({ onClose, onCreate }: Props) {
       }
 
       const fallbackName =
-        tab === "url"
-          ? url
-          : tab === "plugin" && pluginMode === "pull"
-            ? wpUrl
-            : tab === "plugin" && pluginZip
-              ? pluginZip.name.replace(/\.zip$/i, "")
-              : "New project";
+        tab === "plugin" && pluginMode === "pull"
+          ? wpUrl
+          : tab === "plugin" && pluginZip
+            ? pluginZip.name.replace(/\.zip$/i, "")
+            : "New project";
 
       await onCreate({
         name: name.trim() || fallbackName,
         sourceType: tab,
-        url: tab === "url" ? url.trim() : undefined,
         wpParts:
           tab === "files"
             ? { sql: sql ?? undefined, wpContent: wpContent ?? undefined, wpConfig: wpConfig ?? undefined }
@@ -106,14 +96,11 @@ export function NewProjectPanel({ onClose, onCreate }: Props) {
         </div>
 
         <div className="tabs">
-          <button type="button" className={tab === "url" ? "active" : ""} onClick={() => setTab("url")}>
-            Website URL
+          <button type="button" className={tab === "plugin" ? "active" : ""} onClick={() => setTab("plugin")}>
+            Plugin export
           </button>
           <button type="button" className={tab === "files" ? "active" : ""} onClick={() => setTab("files")}>
             WordPress files
-          </button>
-          <button type="button" className={tab === "plugin" ? "active" : ""} onClick={() => setTab("plugin")}>
-            Plugin export
           </button>
         </div>
 
@@ -128,20 +115,6 @@ export function NewProjectPanel({ onClose, onCreate }: Props) {
               autoComplete="off"
             />
           </label>
-
-          {tab === "url" && (
-            <label>
-              Website URL
-              <input
-                type="url"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                placeholder="https://example.com"
-                required
-                autoComplete="url"
-              />
-            </label>
-          )}
 
           {tab === "files" && (
             <WpFileUploads
@@ -187,7 +160,7 @@ export function NewProjectPanel({ onClose, onCreate }: Props) {
                       type="url"
                       value={wpUrl}
                       onChange={(e) => setWpUrl(e.target.value)}
-                      placeholder="http://localhost:8082"
+                      placeholder="http://localhost:8084"
                       autoComplete="url"
                     />
                   </label>
@@ -218,15 +191,10 @@ export function NewProjectPanel({ onClose, onCreate }: Props) {
                     />
                   </label>
                   <p className="muted">
-                    <strong>Live / remote sites:</strong> WordPress will not accept your normal login
-                    password over the API. In wp-admin go to{" "}
-                    <em>Users → Profile → Application Passwords</em>, create one named “Studio”, and
-                    paste that password here (not your login password). Then update/re-upload the{" "}
-                    <code>wp-grape-export</code> plugin on that site.
+                    <strong>Live / remote sites:</strong> use an Application Password from{" "}
+                    <em>Users → Profile → Application Passwords</em>.
                     <br />
-                    <strong>Localhost only:</strong> normal wp-admin username + password works.
-                    <br />
-                    Alternative: export a zip from <em>Tools → Grape Export</em> and use “Upload zip”.
+                    <strong>Localhost:</strong> normal wp-admin username + password works.
                   </p>
                   <label className="checkbox-row">
                     <input type="checkbox" checked={copyMedia} onChange={(e) => setCopyMedia(e.target.checked)} />

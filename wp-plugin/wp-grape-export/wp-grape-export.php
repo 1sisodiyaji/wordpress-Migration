@@ -3,7 +3,7 @@
  * Plugin Name:       WP Grape Export
  * Plugin URI:        https://github.com/your-org/wordpress-Migration
  * Description:       Exports a complete, structured site snapshot (routes, layout, menus, rendered pages, templates, assets, media) for conversion into a React + GrapeJS project. Runs inside WordPress so shortcodes, Elementor and Theme Builder templates are fully resolved.
- * Version:           0.1.11
+ * Version:           0.1.12
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            WP Migration Studio
@@ -17,7 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'WPGE_VERSION', '0.1.11' );
+define( 'WPGE_VERSION', '0.1.12' );
 define( 'WPGE_SCHEMA_VERSION', 2 );
 define( 'WPGE_PLUGIN_FILE', __FILE__ );
 define( 'WPGE_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
