@@ -843,31 +843,6 @@ html, body, #root { height: 100%; }
   position: relative;
 }
 
-.editor-bar {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.55rem 1rem;
-  border-bottom: 1px solid #273241;
-  background: linear-gradient(180deg, #141b24 0%, #121820 100%);
-  color: #e8eef4;
-  flex-shrink: 0;
-  z-index: 40;
-}
-.editor-bar strong {
-  font-size: 0.875rem;
-  letter-spacing: 0.01em;
-}
-.editor-bar-page {
-  flex: 1;
-  min-width: 0;
-  font-size: 0.8125rem;
-  color: #8b9aab;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .app-main { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .site-layout { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; }
 .site-content { flex: 1; min-height: 0; display: flex; flex-direction: column; }

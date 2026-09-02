@@ -24,11 +24,29 @@ const DEVICES = [
   { id: "mobilePortrait", name: "Mobile", width: "375px", widthMedia: "767px" },
 ] as const;
 
+function toolbarIcon(paths: string): string {
+  return \`<span class="grape-tb-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">\${paths}</svg></span>\`;
+}
+
+const DEVICE_ICONS: Record<(typeof DEVICES)[number]["id"], string> = {
+  desktop: toolbarIcon('<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>'),
+  laptop: toolbarIcon('<rect x="3" y="5" width="18" height="11" rx="1.5"/><path d="M2 19h20"/>'),
+  tablet: toolbarIcon('<rect x="4" y="2" width="16" height="20" rx="2"/><circle cx="12" cy="18" r="0.5" fill="currentColor"/>'),
+  mobilePortrait: toolbarIcon('<rect x="7" y="2" width="10" height="20" rx="2"/><circle cx="12" cy="18" r="0.5" fill="currentColor"/>'),
+};
+
+const ACTION_ICONS = {
+  undo: toolbarIcon('<path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/>'),
+  redo: toolbarIcon('<path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13"/>'),
+  visibility: toolbarIcon('<rect x="3" y="3" width="18" height="18" rx="1"/><path d="M3 9h18"/><path d="M9 3v18"/><path d="M15 3v18"/><path d="M3 15h18"/>'),
+  preview: toolbarIcon('<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>'),
+};
+
 function grapeStorageKey(pageKey: string): string {
   const fp = siteData.exportFingerprint ?? siteData.slug;
   const page = siteData.pages.find((p) => p.key === pageKey);
   const mode = page?.contentMode ?? "html";
-  return \`grape-\${fp}-\${mode}-layout-v17-\${pageKey}\`;
+  return \`grape-\${fp}-\${mode}-layout-v18-\${pageKey}\`;
 }
 
 function hasStoredProject(pageKey: string): boolean {
@@ -333,6 +351,7 @@ function updateDeviceBadge(editor: Editor, badge: HTMLElement | null): void {
   const device = editor.getDevice();
   const meta = DEVICES.find((d) => d.id === device || d.name === device);
   badge.textContent = meta?.name ?? String(device);
+  badge.setAttribute("title", \`Viewport: \${meta?.name ?? device}\`);
 }
 
 function isBlankCanvasHtml(html: string | undefined | null): boolean {
@@ -501,10 +520,12 @@ export function GrapeRegion({ pageKey, initialHtml }: Props) {
 
     const deviceButtons = DEVICES.map((d, i) => ({
       id: \`device-\${d.id}\`,
-      label: d.name,
+      className: "grape-device-btn",
+      label: DEVICE_ICONS[d.id],
       command: \`set-device-\${d.id}\`,
       active: i === 0,
       togglable: false,
+      attributes: { title: d.name, "aria-label": d.name },
     }));
 
     const editor = grapesjs.init({
@@ -538,31 +559,31 @@ export function GrapeRegion({ pageKey, initialHtml }: Props) {
               {
                 id: "undo",
                 className: "grape-btn-icon",
-                label: '<span class="grape-tb-ico" title="Undo">↶</span>',
+                label: ACTION_ICONS.undo,
                 command: "core:undo",
-                attributes: { title: "Undo" },
+                attributes: { title: "Undo", "aria-label": "Undo" },
               },
               {
                 id: "redo",
                 className: "grape-btn-icon",
-                label: '<span class="grape-tb-ico" title="Redo">↷</span>',
+                label: ACTION_ICONS.redo,
                 command: "core:redo",
-                attributes: { title: "Redo" },
+                attributes: { title: "Redo", "aria-label": "Redo" },
               },
               {
                 id: "visibility",
                 className: "grape-btn-icon",
-                label: '<span class="grape-tb-ico" title="Show outlines">▦</span>',
+                label: ACTION_ICONS.visibility,
                 command: "sw-visibility",
                 active: true,
-                attributes: { title: "Show outlines" },
+                attributes: { title: "Show outlines", "aria-label": "Show outlines" },
               },
               {
                 id: "preview",
                 className: "grape-btn-icon",
-                label: '<span class="grape-tb-ico" title="Preview">⛶</span>',
+                label: ACTION_ICONS.preview,
                 command: "preview",
-                attributes: { title: "Preview" },
+                attributes: { title: "Preview", "aria-label": "Preview" },
               },
             ],
           },
@@ -652,28 +673,26 @@ export function GrapeRegion({ pageKey, initialHtml }: Props) {
   return (
     <div className="grape-region">
       <div ref={shellRef} className="grape-editor-shell">
-        <header className="grape-toolbar">
-          <div className="grape-toolbar-group">
-            <span className="grape-toolbar-label">Edit</span>
-            <div className="grape-toolbar-actions" />
-          </div>
-          <div className="grape-toolbar-group grape-toolbar-group--devices">
-            <span className="grape-toolbar-label">Viewport</span>
-            <div className="grape-toolbar-devices" />
-          </div>
-          <div className="grape-toolbar-meta">
-            <span ref={deviceBadgeRef} className="grape-device-badge">
-              Desktop
-            </span>
-            <span className="grape-mode-badge" title="Header + page body + footer inside canvas">
-              {contentMode === "blocks" ? "Blocks" : "HTML"}
-            </span>
-          </div>
-        </header>
-
         <div className="grape-editor-row">
           <div className="grape-canvas-wrap">
-            <div className="grape-canvas-hint">Drag elements onto the page · click to style</div>
+            <header className="grape-toolbar grape-toolbar--float">
+              <div className="grape-toolbar-group">
+                <div className="grape-toolbar-actions" />
+              </div>
+              <div className="grape-toolbar-divider" aria-hidden="true" />
+              <div className="grape-toolbar-group grape-toolbar-group--devices">
+                <div className="grape-toolbar-devices" />
+              </div>
+              <div className="grape-toolbar-divider" aria-hidden="true" />
+              <div className="grape-toolbar-meta">
+                <span ref={deviceBadgeRef} className="grape-device-badge" title="Current viewport">
+                  Desktop
+                </span>
+                <span className="grape-mode-badge" title="Header + page body + footer inside canvas">
+                  {contentMode === "blocks" ? "Blocks" : "HTML"}
+                </span>
+              </div>
+            </header>
             <div ref={hostRef} className="grape-host" />
           </div>
 
@@ -733,80 +752,107 @@ export const GRAPE_EDITOR_CSS = `
   font-family: var(--ge-font);
 }
 
-/* ── Top toolbar ──────────────────────────────────────────────────── */
-.grape-toolbar {
-  display: flex;
+/* ── Floating pill toolbar ─────────────────────────────────────────── */
+.grape-toolbar--float {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  display: inline-flex;
   align-items: center;
-  gap: 1rem;
-  padding: 0.45rem 0.85rem;
-  background: linear-gradient(180deg, #141b24 0%, var(--ge-surface) 100%);
-  border-bottom: 1px solid var(--ge-border);
+  gap: 0.35rem;
+  padding: 0.32rem 0.45rem 0.32rem 0.5rem;
+  background: rgba(14, 20, 28, 0.82);
+  backdrop-filter: blur(14px) saturate(1.25);
+  -webkit-backdrop-filter: blur(14px) saturate(1.25);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.42),
+    0 2px 8px rgba(0, 0, 0, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
   flex-shrink: 0;
-  min-height: 48px;
-  z-index: 30;
+  width: max-content;
+  max-width: min(48rem, calc(100% - 2rem)); /* Tailwind max-w-3xl */
+  pointer-events: auto;
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.grape-toolbar--float:hover {
+  box-shadow:
+    0 10px 40px rgba(0, 0, 0, 0.48),
+    0 2px 10px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.09);
 }
 
 .grape-toolbar-group {
   display: flex;
   align-items: center;
-  gap: 0.45rem;
+  gap: 0.2rem;
 }
 
-.grape-toolbar-group--devices {
-  padding-left: 0.85rem;
-  border-left: 1px solid var(--ge-border-soft);
-}
-
-.grape-toolbar-label {
-  font-size: 0.625rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--ge-muted);
-  user-select: none;
+.grape-toolbar-divider {
+  width: 1px;
+  height: 1.35rem;
+  background: rgba(255, 255, 255, 0.1);
+  flex-shrink: 0;
+  margin: 0 0.15rem;
 }
 
 .grape-toolbar-actions,
 .grape-toolbar-devices {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 2px;
 }
 
 .grape-toolbar-devices {
   padding: 3px;
   border-radius: 999px;
-  background: var(--ge-bg);
-  border: 1px solid var(--ge-border-soft);
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  gap: 1px;
+}
+
+.grape-tb-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+  pointer-events: none;
+}
+
+.grape-tb-icon svg {
+  display: block;
 }
 
 .grape-toolbar-meta {
-  margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 0.45rem;
+  gap: 0.35rem;
+  padding-right: 0.15rem;
 }
 
 .grape-device-badge {
-  font-size: 0.75rem;
-  font-weight: 600;
-  padding: 0.28rem 0.7rem;
-  border-radius: 999px;
-  background: var(--ge-accent-dim);
-  color: #5eead4;
-  border: 1px solid rgba(20, 184, 166, 0.35);
+  font-size: 0;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  position: absolute;
+  pointer-events: none;
 }
 
 .grape-mode-badge {
-  font-size: 0.625rem;
+  font-size: 0.5625rem;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
-  padding: 0.28rem 0.55rem;
-  border-radius: 6px;
-  background: var(--ge-surface-2);
+  padding: 0.22rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
   color: var(--ge-muted);
-  border: 1px solid var(--ge-border);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   flex-shrink: 0;
 }
 
@@ -830,28 +876,11 @@ export const GRAPE_EDITOR_CSS = `
     linear-gradient(180deg, #151d28 0%, var(--ge-canvas) 40%);
 }
 
-.grape-canvas-hint {
-  position: absolute;
-  top: 10px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 5;
-  pointer-events: none;
-  font-size: 0.6875rem;
-  color: var(--ge-muted);
-  background: rgba(12, 17, 24, 0.72);
-  border: 1px solid var(--ge-border-soft);
-  padding: 0.28rem 0.75rem;
-  border-radius: 999px;
-  backdrop-filter: blur(6px);
-  opacity: 0.85;
-  white-space: nowrap;
-}
-
 .grape-host {
   flex: 1;
   min-height: 0;
   height: 100%;
+  padding-top: 0;
 }
 
 /* ── Right inspector ──────────────────────────────────────────────── */
@@ -1061,11 +1090,11 @@ export const GRAPE_EDITOR_CSS = `
 }
 
 .grape-editor-shell .gjs-pn-btn {
-  min-width: 2.1rem;
-  height: 2.1rem;
-  line-height: 2.1rem;
-  padding: 0 0.55rem;
-  border-radius: 8px;
+  min-width: 1.85rem;
+  height: 1.85rem;
+  line-height: 1.85rem;
+  padding: 0 0.45rem;
+  border-radius: 999px;
   font-size: 0.75rem;
   font-weight: 600;
   color: var(--ge-muted);
@@ -1074,11 +1103,35 @@ export const GRAPE_EDITOR_CSS = `
   transition: background 0.12s, color 0.12s, border-color 0.12s;
 }
 
-.grape-editor-shell .grape-toolbar-devices .gjs-pn-btn {
-  border-radius: 999px;
-  min-width: auto;
-  padding: 0 0.7rem;
-  font-size: 0.6875rem;
+.grape-editor-shell .grape-toolbar--float .gjs-pn-btn {
+  min-width: 1.85rem;
+  width: 1.85rem;
+  height: 1.85rem;
+  line-height: 0;
+  padding: 0 !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.grape-editor-shell .grape-toolbar-devices .gjs-pn-btn,
+.grape-editor-shell .grape-device-btn {
+  border-radius: 999px !important;
+  min-width: 1.85rem !important;
+  width: 1.85rem !important;
+  height: 1.85rem !important;
+  padding: 0 !important;
+  font-size: 0 !important;
+}
+
+.grape-editor-shell .grape-toolbar-devices .gjs-pn-btn.gjs-pn-active {
+  background: var(--ge-accent) !important;
+  color: #042f2e !important;
+  box-shadow: 0 0 0 1px rgba(20, 184, 166, 0.4);
+}
+
+.grape-editor-shell .grape-toolbar-devices .gjs-pn-btn.gjs-pn-active .grape-tb-icon svg {
+  stroke: #042f2e;
 }
 
 .grape-editor-shell .gjs-pn-btn:hover {
@@ -1116,7 +1169,7 @@ export const GRAPE_EDITOR_CSS = `
 
 .grape-editor-shell .gjs-frame-wrapper {
   background: #fff;
-  margin: 28px auto 18px;
+  margin: 56px auto 18px;
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.04),
     0 12px 40px rgba(0, 0, 0, 0.45);
@@ -1232,15 +1285,14 @@ export const GRAPE_EDITOR_CSS = `
     flex: 0 0 240px;
     width: 240px;
   }
-  .grape-toolbar-label {
-    display: none;
+  .grape-toolbar--float {
+    top: 10px;
+    max-width: min(48rem, calc(100% - 1rem));
+    padding: 0.28rem 0.4rem;
+    gap: 0.2rem;
   }
-  .grape-canvas-hint {
+  .grape-mode-badge {
     display: none;
-  }
-  .grape-toolbar-devices .gjs-pn-btn {
-    padding: 0 0.4rem !important;
-    font-size: 0.625rem !important;
   }
 }
 `;

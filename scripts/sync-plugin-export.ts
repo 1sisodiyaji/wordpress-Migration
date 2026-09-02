@@ -62,6 +62,10 @@ try {
   Generated : ${result.generated ? `projects/${result.siteSlug}/` : "(skipped)"}
   Studio    : http://localhost:5173/project/${result.siteSlug}
   WordPress : http://localhost:8084/
+
+  Editor UI : stop any open editor tab, then in Studio click "Open editor"
+              (or run: cd projects/${result.siteSlug} && pnpm dev)
+              Hard refresh the editor tab: Ctrl+Shift+R
 `);
 } catch (err) {
   console.error(`\n❌ ${err instanceof Error ? err.message : String(err)}\n`);

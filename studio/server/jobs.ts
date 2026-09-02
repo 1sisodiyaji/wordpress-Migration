@@ -148,6 +148,10 @@ export async function runSyncFromLocalWp(
   name: string,
   opts: { copyMedia?: boolean; skipGenerate?: boolean } = {},
 ): Promise<void> {
+  if (!opts.skipGenerate) {
+    stopEditor(slug);
+  }
+
   patchStudioMeta(slug, {
     scrapeStatus: "running",
     sourceType: "plugin",

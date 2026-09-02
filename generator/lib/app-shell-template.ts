@@ -18,7 +18,7 @@ const CN_PAGES_OVERLAY = 'className={"pages-overlay" + (pagesOpen ? " is-open" :
 const CN_PAGES_SIDEBAR = 'className={"pages-sidebar" + (pagesOpen ? " is-open" : "")}';
 
 export function buildAppTsx(input: AppShellTemplateInput): string {
-  const { siteName, imports, pageElementEntries, defaultPageKey } = input;
+  const { imports, pageElementEntries, defaultPageKey } = input;
 
   const lines = [
     'import { useEffect, useState, type ReactNode } from "react";',
@@ -85,11 +85,6 @@ export function buildAppTsx(input: AppShellTemplateInput): string {
     "",
     "  return (",
     '    <div className="app-shell">',
-    '      <div className="editor-bar">',
-    `        <strong>${escapeJsxText(siteName)}</strong>`,
-    '        <span className="editor-bar-page">{active?.title}</span>',
-    "      </div>",
-    "",
     '      <div className="app-main">',
     "        {active?.element ? <SiteLayout key={active.key}>{active.element}</SiteLayout> : null}",
     "      </div>",

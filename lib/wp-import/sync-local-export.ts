@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { importPluginExport } from "./import-plugin-export";
+import { stopProjectDevServer } from "../kill-dev-port";
 
 const ROOT = process.cwd();
 
@@ -193,6 +194,11 @@ async function exportViaDockerCli(copyMedia: boolean): Promise<{ stats?: unknown
 async function generateSite(slug: string): Promise<void> {
   const projectDir = path.join(ROOT, "projects", slug);
   const hadModules = fs.existsSync(path.join(projectDir, "node_modules"));
+
+  const stoppedPort = await stopProjectDevServer(projectDir);
+  if (stoppedPort) {
+    console.log(`\n⏹ Stopped editor dev server on port ${stoppedPort} (restart it after sync)\n`);
+  }
 
   console.log(`\n▶ pnpm generate -- --site ${slug}\n`);
   const gen = await run("pnpm", ["generate", "--", "--site", slug], {
