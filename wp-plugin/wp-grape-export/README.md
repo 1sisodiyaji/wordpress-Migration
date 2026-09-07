@@ -4,20 +4,6 @@ A WordPress plugin that exports a **complete, structured snapshot** of a site �
 
 It runs **inside WordPress**, so shortcodes, Elementor, and Theme Builder / ElementsKit templates are fully resolved (unlike an external scraper).
 
-### Shortcodes & nested templates (v0.1.11+)
-
-Elementor HTML widgets and CTA embeds often leave literal `[shortcodes id="123"]`
-whose real markup lives in `wp_postmeta._elementor_data` for that post ID.
-
-**0.1.11** improves header/footer + shortcode export:
-
-- Inlines header/footer **HTML** into `layout.json` (not only `htmlFile` paths)
-- Detects Theme Builder / HFE location via `_elementor_location` (+ ElementsKit/HFE CPTs)
-- Expands ID-based shortcodes (`[elementor-template id="…"]`, `[hfe_template …]`,
-  any `[tag id="123"]` pointing at an Elementor document) by rendering `_elementor_data`
-- Writes orphan CTA/section documents into `templates/` when referenced only by shortcode
-- Stamps `slots.headerTemplateId` / `footerTemplateId` on each page `meta.json`
-
 ### Shortcodes & nested templates (v0.1.9+)
 
 Elementor HTML widgets and failed template embeds often leave literal `[shortcodes]`
@@ -33,30 +19,6 @@ in export HTML. **0.1.9** adds `Shortcode_Resolver`:
 ## Why
 
 An external scraper cannot reliably resolve `[shortcodes]`, Elementor widget trees, or Theme Builder header/footer assignment because those require the WordPress runtime. This plugin renders everything from within WP and emits a versioned bundle matching `export-schema/v2/manifest.schema.json` in the main repo.
-
-## Local inner loop (no ZIP upload)
-
-The plugin folder is **bind-mounted** into Docker. PHP edits on disk are live in WordPress immediately — do **not** re-zip and re-upload the plugin.
-
-After you change export code:
-
-```bash
-pnpm plugin:sync
-```
-
-That one command:
-
-1. Runs export inside the WordPress container (`http://localhost:8084`)
-2. Writes `uploads/wp-grape-export/latest/` (and `latest.zip`)
-3. Imports into `sites/radius-ois/`
-4. Regenerates `projects/radius-ois/` (keeps `node_modules`)
-
-In Studio you can also click **Sync from localhost:8084** on the project.
-
-```bash
-pnpm plugin:sync -- --skip-generate   # export + import only
-pnpm plugin:sync -- --no-media        # skip copying uploads
-```
 
 ## Install (for local Docker testing)
 

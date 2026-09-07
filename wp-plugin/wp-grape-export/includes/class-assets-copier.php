@@ -42,26 +42,56 @@ class Assets_Copier {
 	}
 
 	/**
-	 * Copy all local assets referenced by the manifest and Elementor post CSS.
+	 * Copy all local assets referenced by the manifest and builder-specific CSS.
 	 *
 	 * @param array    $manifest  Asset manifest (stylesheets + scripts).
 	 * @param int[]    $post_ids  Post IDs to pull Elementor per-page CSS for.
+	 * @param string   $builder   Detected page builder.
 	 * @return array{copied:int,warnings:string[],manifest:array}
 	 */
-	public function copy( array $manifest, array $post_ids = array() ) {
+	public function copy( array $manifest, array $post_ids = array(), $builder = 'elementor' ) {
+		$builder  = $builder ? (string) $builder : 'elementor';
 		$manifest = $this->copy_manifest_entries( $manifest );
-		$this->copy_elementor_css( $post_ids );
-		$this->copy_critical_builder_css();
 
-		$widget_assets = new Widget_Assets();
-		$inventory     = $widget_assets->site_inventory( $post_ids );
-		$this->copied_files += $widget_assets->copy_inventory( $this->writer, $inventory );
+		if ( 'elementor' === $builder ) {
+			$this->copy_elementor_css( $post_ids );
+			$this->copy_critical_elementor_css();
+			$widget_assets = new Widget_Assets();
+			$inventory     = $widget_assets->site_inventory( $post_ids );
+			$this->copied_files += $widget_assets->copy_inventory( $this->writer, $inventory );
+		} else {
+			$this->copy_critical_block_theme_css();
+			$this->copy_otter_runtime_assets();
+		}
 
 		return array(
 			'copied'   => $this->copied_files,
 			'warnings' => $this->warnings,
 			'manifest' => $manifest,
 		);
+	}
+
+	/**
+	 * Font Awesome + Tailwind generator used by Otter Atomic Wind on uncached pages.
+	 */
+	private function copy_otter_runtime_assets() {
+		$rels = array(
+			'plugins/otter-blocks/build/atomic-wind/tailwind-generator-frontend.js',
+			'plugins/otter-blocks/build/atomic-wind/animations-frontend.js',
+			'plugins/otter-blocks/build/atomic-wind/style-animations-frontend.css',
+			'plugins/otter-blocks/assets/fontawesome/css/all.min.css',
+			'plugins/otter-blocks/assets/fontawesome/css/v4-shims.min.css',
+			'plugins/otter-blocks/build/blocks/form/style.css',
+			'plugins/otter-blocks/build/blocks/font-awesome-icons/style.css',
+			'plugins/otter-blocks/build/blocks/icon-list/style.css',
+			'plugins/otter-blocks/build/blocks/sharing-icons/style.css',
+		);
+		$this->copy_rel_list( $rels );
+
+		$fa_webfonts = WP_CONTENT_DIR . '/plugins/otter-blocks/assets/fontawesome/webfonts';
+		if ( is_dir( $fa_webfonts ) ) {
+			$this->copy_font_dirs( array( 'plugins/otter-blocks/assets/fontawesome/webfonts' ) );
+		}
 	}
 
 	/**
@@ -153,20 +183,35 @@ class Assets_Copier {
 			return;
 		}
 
-		$keep_ids = array_fill_keys( array_map( 'intval', $post_ids ), true );
-
-		foreach ( glob( $css_dir . '/*.css' ) as $file ) {
-			$base = basename( $file );
-			if ( preg_match( '/^post-(\d+)\.css$/', $base, $m ) && empty( $keep_ids[ (int) $m[1] ] ) ) {
+		$copied = array();
+		foreach ( $post_ids as $post_id ) {
+			$post_id = (int) $post_id;
+			if ( ! $post_id ) {
 				continue;
 			}
-			$dest = 'assets/wp-content/uploads/elementor/css/' . $base;
-			if ( $this->writer->copy( $file, $dest ) ) {
-				$this->copied_files++;
+			$file = $css_dir . '/post-' . $post_id . '.css';
+			if ( is_readable( $file ) ) {
+				$dest = 'assets/wp-content/uploads/elementor/css/post-' . $post_id . '.css';
+				if ( $this->writer->copy( $file, $dest ) ) {
+					$copied[ basename( $file ) ] = true;
+					$this->copied_files++;
+				}
 			}
 		}
 
-		$this->copy_css_dir( 'plugins/elementor/assets/css/conditionals' );
+		// Shared kit / global / custom widget styles.
+		foreach ( glob( $css_dir . '/*.css' ) as $file ) {
+			$base = basename( $file );
+			if ( isset( $copied[ $base ] ) ) {
+				continue;
+			}
+			if ( preg_match( '/^(global|post-\d+|custom-|base-).*\.css$/', $base ) ) {
+				$dest = 'assets/wp-content/uploads/elementor/css/' . $base;
+				if ( $this->writer->copy( $file, $dest ) ) {
+					$this->copied_files++;
+				}
+			}
+		}
 
 		// Google fonts CSS + font files used by Elementor.
 		$fonts_css_dir = WP_CONTENT_DIR . '/uploads/elementor/google-fonts/css';
@@ -192,7 +237,7 @@ class Assets_Copier {
 	/**
 	 * Always stage core Elementor / ElementsKit CSS even when enqueue missed them.
 	 */
-	private function copy_critical_builder_css() {
+	private function copy_critical_elementor_css() {
 		$rels = array(
 			'plugins/elementor/assets/css/frontend.min.css',
 			'plugins/elementor/assets/lib/eicons/css/elementor-icons.min.css',
@@ -200,7 +245,6 @@ class Assets_Copier {
 			'plugins/elementor/assets/css/conditionals/e-swiper.min.css',
 			'plugins/elementor/assets/css/widget-heading.min.css',
 			'plugins/elementor/assets/css/widget-image.min.css',
-			'plugins/elementor/assets/css/widget-text-editor.min.css',
 			'plugins/elementor/assets/css/widget-image-carousel.min.css',
 			'plugins/elementor/assets/css/widget-icon-box.min.css',
 			'plugins/elementor/assets/css/widget-icon-list.min.css',
@@ -211,24 +255,9 @@ class Assets_Copier {
 			'plugins/elementor-pro/assets/css/widget-form.min.css',
 			'plugins/elementor-pro/assets/css/widget-nav-menu.min.css',
 			'plugins/elementor-pro/assets/css/widget-carousel-module-base.min.css',
-			'plugins/elementor/assets/css/widget-icon.min.css',
-			'plugins/elementor/assets/css/widget-button.min.css',
 			'plugins/elementskit-lite/modules/elementskit-icon-pack/assets/css/ekiticons.css',
 			'plugins/elementskit-lite/widgets/init/assets/css/widget-styles.css',
 			'plugins/elementskit-lite/widgets/init/assets/css/responsive.css',
-			'plugins/elementskit-lite/widgets/init/assets/css/common.css',
-			'plugins/elementskit-lite/widgets/init/assets/css/client-logo.css',
-			'plugins/elementskit-lite/widgets/init/assets/css/button.css',
-			'plugins/elementskit-lite/widgets/init/assets/css/funfact.css',
-			'plugins/elementskit-lite/widgets/init/assets/css/icon-box.css',
-			'plugins/elementskit-lite/widgets/init/assets/css/nav-menu.css',
-			'plugins/elementskit-lite/widgets/init/assets/css/header-offcanvas.css',
-			'plugins/elementskit-lite/widgets/init/assets/css/header-search.css',
-			'plugins/elementskit-lite/widgets/init/assets/css/header-info.css',
-			'plugins/slide-everything-for-elementor/scripts/main.js',
-			'plugins/elementor/assets/lib/font-awesome/css/all.min.css',
-			'plugins/elementor/assets/lib/font-awesome/css/v4-shims.min.css',
-			'uploads/elementor/css/custom-pro-widget-nav-menu.min.css',
 			'plugins/elementor/assets/lib/swiper/v8/swiper.min.js',
 			'plugins/elementor/assets/js/webpack.runtime.min.js',
 			'plugins/elementor/assets/js/frontend-modules.min.js',
@@ -239,6 +268,66 @@ class Assets_Copier {
 			'plugins/elementor-pro/assets/lib/smartmenus/jquery.smartmenus.min.js',
 		);
 
+		$this->copy_rel_list( $rels );
+
+		$font_dirs = array(
+			'plugins/elementor/assets/lib/eicons/fonts',
+			'plugins/elementskit-lite/modules/elementskit-icon-pack/assets/fonts',
+		);
+		$this->copy_font_dirs( $font_dirs );
+	}
+
+	/**
+	 * Stage Neve / Otter / block theme CSS for Gutenberg exports.
+	 */
+	private function copy_critical_block_theme_css() {
+		$rels = array();
+
+		$theme_rel_candidates = array(
+			'themes/' . get_stylesheet() . '/style-main-new.min.css',
+			'themes/' . get_template() . '/style-main-new.min.css',
+			'themes/' . get_stylesheet() . '/style-main.min.css',
+			'themes/' . get_template() . '/style-main.min.css',
+			'themes/' . get_stylesheet() . '/style.css',
+			'themes/' . get_template() . '/style.css',
+			'themes/' . get_stylesheet() . '/assets/css/mega-menu.min.css',
+			'themes/' . get_template() . '/assets/css/mega-menu.min.css',
+		);
+		foreach ( $theme_rel_candidates as $rel ) {
+			if ( is_readable( WP_CONTENT_DIR . '/' . $rel ) ) {
+				$rels[] = $rel;
+			}
+		}
+
+		$otter_globs = array(
+			'plugins/otter-blocks/build/atomic-wind/style-animations-frontend.css',
+			'plugins/otter-blocks/build/atomic-wind/style-animations-frontend-rtl.css',
+			'plugins/otter-blocks/build/style.css',
+			'plugins/otter-blocks/build/blocks/style.css',
+			'plugins/otter-blocks/build/animation/index.css',
+		);
+		foreach ( $otter_globs as $rel ) {
+			if ( is_readable( WP_CONTENT_DIR . '/' . $rel ) ) {
+				$rels[] = $rel;
+			}
+		}
+
+		// Block frontend styles only (skip editor CSS).
+		$blocks_dir = WP_CONTENT_DIR . '/plugins/otter-blocks/build/blocks';
+		if ( is_dir( $blocks_dir ) ) {
+			foreach ( glob( $blocks_dir . '/*/style.css' ) ?: array() as $file ) {
+				$rel    = ltrim( str_replace( WP_CONTENT_DIR, '', wp_normalize_path( $file ) ), '/' );
+				$rels[] = $rel;
+			}
+		}
+
+		$this->copy_rel_list( array_values( array_unique( $rels ) ) );
+	}
+
+	/**
+	 * @param string[] $rels Paths under wp-content.
+	 */
+	private function copy_rel_list( array $rels ) {
 		foreach ( $rels as $rel ) {
 			$source = WP_CONTENT_DIR . '/' . $rel;
 			if ( ! is_readable( $source ) ) {
@@ -249,13 +338,12 @@ class Assets_Copier {
 				$this->copied_files++;
 			}
 		}
+	}
 
-		// Icon fonts referenced by the CSS above.
-		$font_dirs = array(
-			'plugins/elementor/assets/lib/eicons/fonts',
-			'plugins/elementskit-lite/modules/elementskit-icon-pack/assets/fonts',
-			'plugins/elementor/assets/lib/font-awesome/webfonts',
-		);
+	/**
+	 * @param string[] $font_dirs Paths under wp-content.
+	 */
+	private function copy_font_dirs( array $font_dirs ) {
 		foreach ( $font_dirs as $dir_rel ) {
 			$abs = WP_CONTENT_DIR . '/' . $dir_rel;
 			if ( ! is_dir( $abs ) ) {
@@ -270,30 +358,13 @@ class Assets_Copier {
 				}
 			}
 		}
-
-		// ElementsKit split the old widget-styles.css into per-widget files.
-		$this->copy_css_dir( 'plugins/elementskit-lite/widgets/init/assets/css' );
-		$this->copy_css_dir( 'plugins/elementskit/widgets/init/assets/css' );
 	}
 
 	/**
-	 * Copy every .css file from a wp-content-relative directory.
-	 *
-	 * @param string $dir_rel Directory under wp-content.
+	 * @deprecated Renamed to copy_critical_elementor_css().
 	 */
-	private function copy_css_dir( $dir_rel ) {
-		$abs = WP_CONTENT_DIR . '/' . $dir_rel;
-		if ( ! is_dir( $abs ) ) {
-			return;
-		}
-		foreach ( glob( $abs . '/*.css' ) as $file ) {
-			if ( ! is_file( $file ) ) {
-				continue;
-			}
-			if ( $this->writer->copy( $file, 'assets/wp-content/' . $dir_rel . '/' . basename( $file ) ) ) {
-				$this->copied_files++;
-			}
-		}
+	private function copy_critical_builder_css() {
+		$this->copy_critical_elementor_css();
 	}
 
 	/**

@@ -1,9 +1,11 @@
+import { useState } from "react";
 import type { Project } from "../api";
+import { ConfirmDeleteModal } from "./ui";
 
 interface Props {
   projects: Project[];
   onOpen: (slug: string) => void;
-  onDelete: (slug: string) => void;
+  onDelete: (slug: string) => Promise<void> | void;
   onCreate?: () => void;
 }
 
@@ -21,12 +23,26 @@ function statusBadge(project: Project): string {
 function sourceLabel(project: Project): string {
   const m = project.meta;
   if (!m) return project.slug;
-  if (m.sourceType === "plugin") return "Plugin export";
-  if (m.sourceType === "files") return "WordPress files";
-  return "Plugin export";
+  if (m.url) return m.url;
+  if (m.sourceType === "plugin") return "WordPress plugin";
+  return "Project";
 }
 
 export function ProjectList({ projects, onOpen, onDelete, onCreate }: Props) {
+  const [pending, setPending] = useState<{ slug: string; name: string } | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+
+  async function confirmDelete() {
+    if (!pending) return;
+    setDeleteBusy(true);
+    try {
+      await onDelete(pending.slug);
+      setPending(null);
+    } finally {
+      setDeleteBusy(false);
+    }
+  }
+
   if (projects.length === 0) {
     return (
       <section className="gcp-empty">
@@ -36,7 +52,7 @@ export function ProjectList({ projects, onOpen, onDelete, onCreate }: Props) {
           </svg>
         </div>
         <h2>No projects yet</h2>
-        <p>Create a project from a wp-grape-export bundle or WordPress file upload.</p>
+        <p>Create a project, upload an export ZIP, or sync from a WordPress URL.</p>
         {onCreate ? (
           <button type="button" className="btn btn-primary" onClick={onCreate}>
             Create project
@@ -102,15 +118,7 @@ export function ProjectList({ projects, onOpen, onDelete, onCreate }: Props) {
                     <button
                       type="button"
                       className="btn btn-text btn-danger btn-sm"
-                      onClick={() => {
-                        if (
-                          confirm(
-                            `Delete "${name}"?\n\nThis removes all site data (sites/${p.slug}) and the generated project (projects/${p.slug}). This cannot be undone.`,
-                          )
-                        ) {
-                          onDelete(p.slug);
-                        }
-                      }}
+                      onClick={() => setPending({ slug: p.slug, name })}
                     >
                       Delete
                     </button>
@@ -121,6 +129,16 @@ export function ProjectList({ projects, onOpen, onDelete, onCreate }: Props) {
           </tbody>
         </table>
       </div>
+
+      {pending && (
+        <ConfirmDeleteModal
+          name={pending.name}
+          detail={`Removes site data (sites/${pending.slug}) and the generated project (projects/${pending.slug}).`}
+          busy={deleteBusy}
+          onCancel={() => !deleteBusy && setPending(null)}
+          onConfirm={confirmDelete}
+        />
+      )}
     </section>
   );
 }

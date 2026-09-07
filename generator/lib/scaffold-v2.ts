@@ -7,7 +7,7 @@ import {
   patchElementorCssUrls,
   prepareGrapeHtmlForCanvas,
   rewriteAssetUrls,
-  withElementorPreviewStyle,
+  withBuilderCanvasStyles,
   writeElementorCanvasFixStyle,
   writeElementorKitVarsStyle,
   writeElementorPreviewStyle,
@@ -82,23 +82,28 @@ export async function generateReactGrapeProjectV2(opts: {
   }
 
   // Fill gaps when the WP export missed Elementor frontend / widget / theme CSS.
-  const tryDataRoots = [
-    path.join(process.cwd(), "try-data", "radius-ois", "www"),
-    path.join(process.cwd(), "try-data", "smartco-20260705T182508Z-3-001", "smartco"),
-    path.join(process.cwd(), "try-data", "orbit-commercial-bank", "Orbit-Commercial-Bank"),
-  ];
-  ensureCriticalCanvasCss(projectAssetsDir, [site.assetsSourceDir, ...tryDataRoots]);
+  const isElementor = (site.pageBuilder ?? "unknown") === "elementor";
+  if (isElementor) {
+    const tryDataRoots = [
+      path.join(process.cwd(), "try-data", "radius-ois", "www"),
+      path.join(process.cwd(), "try-data", "smartco-20260705T182508Z-3-001", "smartco"),
+      path.join(process.cwd(), "try-data", "orbit-commercial-bank", "Orbit-Commercial-Bank"),
+    ];
+    ensureCriticalCanvasCss(projectAssetsDir, [site.assetsSourceDir, ...tryDataRoots]);
+    writeElementorPreviewStyle(projectAssetsDir);
+    writeElementorCanvasFixStyle(projectAssetsDir);
+    patchElementorCssUrls(projectAssetsDir);
+  }
 
-  writeElementorPreviewStyle(projectAssetsDir);
-  writeElementorCanvasFixStyle(projectAssetsDir);
   writeGrapeBlocksStyle(projectAssetsDir);
   writeSiteFontsStyle(projectAssetsDir, { wordpressUrl: site.wordpressUrl });
-  patchElementorCssUrls(projectAssetsDir);
 
   writeData(projectDir, site, []);
-  const elementorKitClasses = writeElementorKitVarsStyle(projectAssetsDir, {
-    wordpressUrl: site.wordpressUrl,
-  });
+  const elementorKitClasses = isElementor
+    ? writeElementorKitVarsStyle(projectAssetsDir, {
+        wordpressUrl: site.wordpressUrl,
+      })
+    : [];
   patchSiteKitClasses(projectDir, elementorKitClasses);
 
   writeLayoutComponents(projectDir);
@@ -360,19 +365,25 @@ function extractLibraryTemplateStyles(siteSlug: string, assetsRoot: string): str
   return hrefs;
 }
 
-/** Copy plugin-export sidecar CSS (Elementor inline styles saved as pages/{key}/inline.css). */
+/** Copy plugin-export sidecar CSS (Elementor / Otter page inline styles). */
 function copyPageExportInlineCss(siteSlug: string, pageKey: string, assetsRoot: string): string[] {
-  const src = path.join(getMigratedDataDir(siteSlug), "pages", pageKey, "inline.css");
-  if (!fs.existsSync(src) || fs.statSync(src).size === 0) return [];
-  const rel = `inline/styles/page-${pageKey}-export.css`;
-  const dest = path.join(assetsRoot, rel);
-  fs.mkdirSync(path.dirname(dest), { recursive: true });
-  fs.writeFileSync(dest, rewriteAssetUrls(fs.readFileSync(src, "utf8")), "utf8");
-  return [`/assets/${rel}`];
+  const dataDir = getMigratedDataDir(siteSlug);
+  const hrefs: string[] = [];
+  for (const name of ["inline.css", "atomic-wind.css"]) {
+    const src = path.join(dataDir, "pages", pageKey, name);
+    if (!fs.existsSync(src) || fs.statSync(src).size === 0) continue;
+    const rel = `inline/styles/page-${pageKey}-${name.replace(/\.css$/, "")}.css`;
+    const dest = path.join(assetsRoot, rel);
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.writeFileSync(dest, rewriteAssetUrls(fs.readFileSync(src, "utf8")), "utf8");
+    hrefs.push(`/assets/${rel}`);
+  }
+  return hrefs;
 }
 
 function writeData(projectDir: string, site: PluginSite, elementorKitClasses: string[] = []): void {
   const assetsRoot = path.join(projectDir, "public", "assets");
+  const isElementor = (site.pageBuilder ?? "unknown") === "elementor";
 
   const headerExtracted = extractInlineElementorStyles(
     mirrorRemoteMediaUrls(rewriteAssetUrls(site.headerHtml), assetsRoot),
@@ -384,7 +395,7 @@ function writeData(projectDir: string, site: PluginSite, elementorKitClasses: st
     assetsRoot,
     { name: "layout-footer-inline" },
   );
-  const libraryStyleHrefs = extractLibraryTemplateStyles(site.slug, assetsRoot);
+  const libraryStyleHrefs = isElementor ? extractLibraryTemplateStyles(site.slug, assetsRoot) : [];
   const layoutStyleHrefs = [
     ...headerExtracted.styleHrefs,
     ...footerExtracted.styleHrefs,
@@ -393,29 +404,31 @@ function writeData(projectDir: string, site: PluginSite, elementorKitClasses: st
 
   // Page-level responsive CSS for header/footer Elementor templates (blocks path).
   const layoutResponsiveHrefs: string[] = [];
-  const headerTree = loadTemplateTreeByType(site.slug, "header");
-  if (headerTree) {
-    const href = writeResponsiveCssFile(
-      assetsRoot,
-      "layout-header-responsive",
-      buildElementorResponsiveCss(headerTree, "header"),
-    );
-    if (href) layoutResponsiveHrefs.push(href);
-  }
-  const footerTree = loadTemplateTreeByType(site.slug, "footer");
-  if (footerTree) {
-    const href = writeResponsiveCssFile(
-      assetsRoot,
-      "layout-footer-responsive",
-      buildElementorResponsiveCss(footerTree, "footer"),
-    );
-    if (href) layoutResponsiveHrefs.push(href);
+  if (isElementor) {
+    const headerTree = loadTemplateTreeByType(site.slug, "header");
+    if (headerTree) {
+      const href = writeResponsiveCssFile(
+        assetsRoot,
+        "layout-header-responsive",
+        buildElementorResponsiveCss(headerTree, "header"),
+      );
+      if (href) layoutResponsiveHrefs.push(href);
+    }
+    const footerTree = loadTemplateTreeByType(site.slug, "footer");
+    if (footerTree) {
+      const href = writeResponsiveCssFile(
+        assetsRoot,
+        "layout-footer-responsive",
+        buildElementorResponsiveCss(footerTree, "footer"),
+      );
+      if (href) layoutResponsiveHrefs.push(href);
+    }
   }
 
   const pages = site.pages.map((p) => {
     const canvas = pageCanvasAssets(site, p, assetsRoot);
-    const grapeBlocks = loadGrapeBlocksForPage(site.slug, p.key);
-    const rawTree = loadRawElementorTree(site.slug, p.key);
+    const grapeBlocks = isElementor ? loadGrapeBlocksForPage(site.slug, p.key) : null;
+    const rawTree = isElementor ? loadRawElementorTree(site.slug, p.key) : null;
     const pageResponsiveHref =
       rawTree &&
       writeResponsiveCssFile(
@@ -438,23 +451,28 @@ function writeData(projectDir: string, site: PluginSite, elementorKitClasses: st
     const hasBlocks = Array.isArray(grapeBlocks) && grapeBlocks.length > 0;
     // Prefer rendered HTML when present; fall back to Elementor→blocks when HTML is empty.
     const contentMode = !htmlIsBlank ? ("html" as const) : hasBlocks ? ("blocks" as const) : ("html" as const);
-    const rewrittenPostCss = writeRewrittenPostCss(assetsRoot, p.postId, contentMode);
+    const rewrittenPostCss = isElementor
+      ? writeRewrittenPostCss(assetsRoot, p.postId, contentMode)
+      : null;
     const exportInlineHrefs = copyPageExportInlineCss(site.slug, p.key, assetsRoot);
     const inlineHrefs =
       contentMode === "blocks"
         ? extracted.styleHrefs.map((href) => rewriteLinkedCssForBlocks(assetsRoot, href))
         : extracted.styleHrefs;
 
-    const canvasStyles = withElementorPreviewStyle([
-      ...canvas.styles,
-      ...layoutStyleHrefs,
-      ...layoutResponsiveHrefs,
-      ...(pageResponsiveHref ? [pageResponsiveHref] : []),
-      ...(pageCustomCssHref ? [pageCustomCssHref] : []),
-      ...(rewrittenPostCss ? [rewrittenPostCss] : []),
-      ...exportInlineHrefs,
-      ...inlineHrefs,
-    ]);
+    const canvasStyles = withBuilderCanvasStyles(
+      [
+        ...canvas.styles,
+        ...layoutStyleHrefs,
+        ...layoutResponsiveHrefs,
+        ...(pageResponsiveHref ? [pageResponsiveHref] : []),
+        ...(pageCustomCssHref ? [pageCustomCssHref] : []),
+        ...(rewrittenPostCss ? [rewrittenPostCss] : []),
+        ...exportInlineHrefs,
+        ...inlineHrefs,
+      ],
+      site.pageBuilder,
+    );
 
     return {
       key: p.key,
@@ -714,7 +732,12 @@ function writeRootFiles(projectDir: string, site: PluginSite, port: number): voi
           build: "tsc -b && vite build",
           preview: `vite preview --port ${port}`,
         },
-        dependencies: { grapesjs: "^0.22.8", react: "^19.2.0", "react-dom": "^19.2.0" },
+        dependencies: {
+          grapesjs: "^0.22.8",
+          "lucide-react": "^0.544.0",
+          react: "^19.2.0",
+          "react-dom": "^19.2.0",
+        },
         devDependencies: {
           "@types/react": "^19",
           "@types/react-dom": "^19",

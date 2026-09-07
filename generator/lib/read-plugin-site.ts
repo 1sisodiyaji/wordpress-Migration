@@ -46,6 +46,8 @@ export interface PluginSite {
   name: string;
   /** Live WordPress origin (for kit CSS scrape when export lacks post-kit CSS). */
   wordpressUrl?: string;
+  /** Detected by wp-grape-export (elementor|gutenberg|…). */
+  pageBuilder?: string;
   /** Busts GrapeJS localStorage when the export is re-imported. */
   exportFingerprint: string;
   headerHtml: string;
@@ -142,10 +144,24 @@ export function readPluginSite(slug: string): PluginSite {
   const headerHtml = layout.header?.html?.trim() || headerRegion.html;
   const footerHtml = layout.footer?.html?.trim() || footerRegion.html;
 
+  let pageBuilder =
+    (manifest?.site as { pageBuilder?: string } | undefined)?.pageBuilder ??
+    manifest?.pageBuilder;
+  const siteJsonPath = path.join(dataDir, "site.json");
+  if (!pageBuilder && fs.existsSync(siteJsonPath)) {
+    try {
+      const siteJson = JSON.parse(fs.readFileSync(siteJsonPath, "utf8")) as { pageBuilder?: string };
+      pageBuilder = siteJson.pageBuilder;
+    } catch {
+      /* ignore */
+    }
+  }
+
   return {
     slug,
     name: manifest?.site?.name ?? slug,
     wordpressUrl: manifest?.wordpressUrl ?? manifest?.site?.url,
+    pageBuilder: pageBuilder || "unknown",
     exportFingerprint,
     headerHtml,
     footerHtml,
@@ -277,13 +293,16 @@ function hrefIfAssetExists(projectAssetsRoot: string, relOrHref: string): string
   return null;
 }
 
-/** Per-page canvas assets: per-page export profile + global manifest + Elementor post CSS. */
+/** Per-page canvas assets: per-page export profile + global manifest (+ Elementor only when needed). */
 export function pageCanvasAssets(
   site: PluginSite,
   page: PluginSitePage,
   projectAssetsRoot: string,
 ): { styles: string[]; scripts: string[] } {
-  const diskStyles = collectCanvasStyles(projectAssetsRoot, page.postId);
+  const isElementor = (site.pageBuilder ?? "unknown") === "elementor";
+  const diskStyles = isElementor
+    ? collectCanvasStyles(projectAssetsRoot, page.postId)
+    : collectBlockThemeCanvasStyles(projectAssetsRoot);
   const pageProfile = readPageAssetProfile(site.slug, page.key);
 
   const profileStyles: string[] = [];
@@ -302,18 +321,91 @@ export function pageCanvasAssets(
     if (href) profileScripts.push(href);
   }
 
-  for (const extra of [
-    "plugins/elementor/assets/lib/swiper/v8/swiper.min.js",
-    "plugins/slide-everything-for-elementor/scripts/main.js",
-  ]) {
-    const href = hrefIfAssetExists(projectAssetsRoot, extra);
-    if (href) profileScripts.push(href);
+  if (isElementor) {
+    for (const extra of [
+      "plugins/elementor/assets/lib/swiper/v8/swiper.min.js",
+      "plugins/slide-everything-for-elementor/scripts/main.js",
+    ]) {
+      const href = hrefIfAssetExists(projectAssetsRoot, extra);
+      if (href) profileScripts.push(href);
+    }
+  } else {
+    // Otter generates Tailwind at runtime when `_atomic_wind_css` was never cached.
+    for (const extra of [
+      "plugins/otter-blocks/build/atomic-wind/tailwind-generator-frontend.js",
+      "plugins/otter-blocks/build/atomic-wind/animations-frontend.js",
+    ]) {
+      const href = hrefIfAssetExists(projectAssetsRoot, extra);
+      if (href) profileScripts.push(href);
+    }
+    for (const extra of [
+      "plugins/otter-blocks/assets/fontawesome/css/all.min.css",
+      "plugins/otter-blocks/build/blocks/form/style.css",
+      "plugins/otter-blocks/build/blocks/font-awesome-icons/style.css",
+      "plugins/otter-blocks/build/blocks/icon-list/style.css",
+    ]) {
+      const href = hrefIfAssetExists(projectAssetsRoot, extra);
+      if (href) profileStyles.push(href);
+    }
   }
 
   return {
     styles: [...new Set([...diskStyles, ...profileStyles, ...site.globalStyles])],
     scripts: [...new Set([...site.globalScripts, ...profileScripts])],
   };
+}
+
+/** Neve / Otter / theme CSS that exists under the project assets tree. */
+function collectBlockThemeCanvasStyles(assetsRoot: string): string[] {
+  const styles: string[] = [];
+  const wpRoot = path.join(assetsRoot, "wp-content");
+  if (!fs.existsSync(wpRoot)) return styles;
+
+  const pushGlob = (dirRel: string) => {
+    const absDir = path.join(wpRoot, dirRel);
+    if (!fs.existsSync(absDir)) return;
+    for (const file of fs.readdirSync(absDir).sort()) {
+      if (!file.endsWith(".css")) continue;
+      styles.push(`/assets/wp-content/${dirRel}/${file}`);
+    }
+  };
+
+  // Themes (Neve style-main-new.min.css, etc.)
+  const themesRoot = path.join(wpRoot, "themes");
+  if (fs.existsSync(themesRoot)) {
+    for (const theme of fs.readdirSync(themesRoot)) {
+      const themeDir = path.join(themesRoot, theme);
+      if (!fs.statSync(themeDir).isDirectory()) continue;
+      for (const name of ["style-main-new.min.css", "style-main.min.css", "style.css"]) {
+        if (fs.existsSync(path.join(themeDir, name))) {
+          styles.push(`/assets/wp-content/themes/${theme}/${name}`);
+        }
+      }
+    }
+  }
+
+  pushGlob("plugins/otter-blocks/build/atomic-wind");
+  for (const rel of [
+    "plugins/otter-blocks/build/style.css",
+    "plugins/otter-blocks/build/blocks/style.css",
+  ]) {
+    if (fs.existsSync(path.join(wpRoot, rel))) {
+      styles.push(`/assets/wp-content/${rel}`);
+    }
+  }
+
+  // Inline dumps from export (Tailwind / theme vars).
+  const inlineDir = path.join(assetsRoot, "inline", "styles");
+  if (fs.existsSync(inlineDir)) {
+    for (const file of fs.readdirSync(inlineDir).sort()) {
+      if (!file.endsWith(".css")) continue;
+      // Prefer otter/neve/atomic/global; skip elementor leftovers if any.
+      if (/elementor/i.test(file)) continue;
+      styles.push(`/assets/inline/styles/${file}`);
+    }
+  }
+
+  return [...new Set(styles)];
 }
 
 function readPageAssetProfile(slug: string, pageKey: string): PageAssetProfile | null {

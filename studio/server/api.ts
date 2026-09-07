@@ -168,7 +168,7 @@ export function registerApi(app: Express): void {
     res.json({ project: projectPayload(slug) });
   });
 
-  app.delete("/api/projects/:slug", (req, res) => {
+  app.delete("/api/projects/:slug", async (req, res) => {
     const slug = String(req.params.slug);
     const exists =
       siteExists(slug) ||
@@ -180,10 +180,24 @@ export function registerApi(app: Express): void {
       return;
     }
 
-    const result = deleteProjectCompletely(slug);
-    deleteSite(slug);
+    try {
+      const result = await deleteProjectCompletely(slug);
+      deleteSite(slug);
 
-    res.json({ ok: true, deleted: result });
+      if (result.warning) {
+        res.status(409).json({
+          ok: false,
+          error: result.warning,
+          deleted: result,
+        });
+        return;
+      }
+
+      res.json({ ok: true, deleted: result });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: message });
+    }
   });
 
   app.post("/api/projects/:slug/scrape", async (req, res) => {

@@ -271,6 +271,27 @@ export function withElementorPreviewStyle(styles: string[]): string[] {
   ];
 }
 
+/** Prefix canvas styles for the detected builder (skip Elementor chrome on Gutenberg/Neve). */
+export function withBuilderCanvasStyles(styles: string[], pageBuilder?: string): string[] {
+  if ((pageBuilder ?? "unknown") === "elementor") {
+    return withElementorPreviewStyle(styles);
+  }
+  const remote = new Set(CANVAS_REMOTE_STYLES);
+  const without = styles.filter(
+    (s) =>
+      s !== ELEMENTOR_PREVIEW_STYLE_HREF &&
+      s !== ELEMENTOR_KIT_VARS_STYLE_HREF &&
+      s !== ELEMENTOR_CANVAS_FIX_STYLE_HREF &&
+      s !== SITE_FONTS_STYLE_HREF &&
+      !remote.has(s) &&
+      !/\/plugins\/elementor\//i.test(s) &&
+      !/\/plugins\/elementskit/i.test(s) &&
+      !/\/themes\/astra\//i.test(s) &&
+      !/\/uploads\/elementor\//i.test(s),
+  );
+  return [SITE_FONTS_STYLE_HREF, ...without];
+}
+
 function pushIfExists(styles: string[], assetsRoot: string, rel: string): void {
   const abs = path.join(assetsRoot, "wp-content", rel);
   if (fs.existsSync(abs)) styles.push(`/assets/wp-content/${rel}`);

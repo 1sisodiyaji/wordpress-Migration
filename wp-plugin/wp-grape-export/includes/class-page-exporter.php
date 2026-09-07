@@ -61,30 +61,14 @@ class Page_Exporter {
 	private $warnings = array();
 
 	/**
-	 * Document IDs resolved from shortcodes / postmeta during page export.
-	 *
-	 * @var array<int,true>
-	 */
-	private $resolved_document_ids = array();
-
-	/**
-	 * Shared layout (optional) — used to stamp header/footer template IDs onto page meta.
-	 *
-	 * @var array|null
-	 */
-	private $layout = null;
-
-	/**
 	 * @param Bundle_Writer $writer  Bundle writer.
 	 * @param string        $builder Detected page builder.
-	 * @param array|null    $layout  Optional layout descriptor.
 	 */
-	public function __construct( Bundle_Writer $writer, $builder, $layout = null ) {
+	public function __construct( Bundle_Writer $writer, $builder ) {
 		$this->writer    = $writer;
 		$this->builder   = $builder;
 		$this->elementor = new Elementor_Bridge();
 		$this->resolver  = new Shortcode_Resolver( $this->elementor );
-		$this->layout    = is_array( $layout ) ? $layout : null;
 	}
 
 	/**
@@ -123,21 +107,20 @@ class Page_Exporter {
 				$this->resolver->collect_from_elementor_data( $raw_data )
 			);
 
-			// Pre-expand template/CTA shortcodes found in `_elementor_data` by
-			// rendering each referenced post ID from postmeta, then substitute
-			// stubs that Elementor may leave in the page HTML.
-			$rendered = $this->elementor->render( $post_id, array( 'resolve_shortcodes' => false ) );
-			$rendered = $this->expand_elementor_embeds( $rendered, $found_shortcodes, $post_id, $route );
+			$rendered = $this->elementor->render( $post_id );
 		} elseif ( 'gutenberg' === $builder ) {
+			// Gutenberg: render blocks through the_content AND capture the
+			// structured block tree so the converter can map blocks -> components.
 			$rendered = $this->render_classic( $raw );
 			$raw_data = $this->parse_blocks_tree( $raw );
 		} else {
+			// Classic: resolve shortcodes through the_content.
 			$rendered = $this->render_classic( $raw );
 			$raw_data = null;
 		}
 
 		// Final pass — catches embeds Elementor left as literal shortcodes
-		// (HTML widget, failed template shortcode, CTA id=..., etc.).
+		// (HTML widget, failed template shortcode, etc.).
 		$rendered = $this->resolver->resolve(
 			$rendered,
 			array(
@@ -146,16 +129,20 @@ class Page_Exporter {
 			)
 		);
 
-		foreach ( $this->resolver->resolved_document_ids() as $rid ) {
-			$this->resolved_document_ids[ (int) $rid ] = true;
+		// Empty post_content / unresolved LMS shortcodes / stub pages: crawl the live page.
+		// Blog (posts page) always uses the live posts index — page body is often a stub.
+		$is_posts_page = ( (int) get_option( 'page_for_posts' ) === $post_id );
+		if ( $is_posts_page || Front_Html::needs_live_content( $rendered ) ) {
+			$live = $this->capture_live_content( $post, $route, $is_posts_page );
+			if ( $live ) {
+				$rendered = $live;
+			}
 		}
 
 		$this->unresolved = array_merge(
 			$this->unresolved,
 			$this->resolver->audit_unresolved( $rendered, $route )
 		);
-
-		$inline_css_file = $this->write_extracted_styles( $dir, $rendered );
 
 		$rendered_file = $dir . '/rendered.html';
 		$this->writer->write( $rendered_file, $rendered );
@@ -170,23 +157,11 @@ class Page_Exporter {
 		}
 
 		$shortcode_report = array(
-			'detected'           => $this->dedupe_shortcodes( $found_shortcodes ),
-			'expanded'           => $this->resolver->inventory(),
-			'resolvedDocumentIds'=> $this->resolver->resolved_document_ids(),
-			'leftover'           => $this->resolver->audit_unresolved( $rendered, $route ),
+			'detected' => $this->dedupe_shortcodes( $found_shortcodes ),
+			'expanded' => $this->resolver->inventory(),
+			'leftover'  => $this->resolver->audit_unresolved( $rendered, $route ),
 		);
 		$this->writer->write_json( $dir . '/shortcodes.json', $shortcode_report );
-
-		$header_id = null;
-		$footer_id = null;
-		if ( $this->layout ) {
-			if ( ! empty( $this->layout['header']['postId'] ) ) {
-				$header_id = (int) $this->layout['header']['postId'];
-			}
-			if ( ! empty( $this->layout['footer']['postId'] ) ) {
-				$footer_id = (int) $this->layout['footer']['postId'];
-			}
-		}
 
 		$meta = array(
 			'postId'       => $post_id,
@@ -200,8 +175,8 @@ class Page_Exporter {
 			'rawFile'      => $raw_file,
 			'assetsFile'   => $dir . '/assets.json',
 			'slots'        => array(
-				'headerTemplateId' => $header_id,
-				'footerTemplateId' => $footer_id,
+				'headerTemplateId' => null,
+				'footerTemplateId' => null,
 			),
 			'shortcodes'   => $shortcode_report['detected'],
 		);
@@ -209,14 +184,132 @@ class Page_Exporter {
 
 		$page_assets = new Widget_Assets( $this->elementor );
 		$profile     = $page_assets->build_page_profile( $post_id );
-		if ( $inline_css_file ) {
-			$profile['inlineCss'] = $inline_css_file;
+
+		// Otter Atomic Wind caches Tailwind per post; also harvest live page <style> tags
+		// (forms, late CSS) so section/icon utilities aren't missing in Grape.
+		$inline_css = $this->collect_page_inline_css( $post_id, $post, $route, $rendered );
+		if ( $inline_css ) {
+			$inline_file = $dir . '/inline.css';
+			$this->writer->write( $inline_file, $inline_css );
+			$profile['inlineCss'] = $inline_file;
 		}
+
 		$this->writer->write_json( $dir . '/assets.json', $profile );
 
 		$route['dir'] = $dir;
 
 		return array( 'route' => $route );
+	}
+
+	/**
+	 * Build page-level CSS: Otter `_atomic_wind_css` cache + live <style> harvest.
+	 *
+	 * @param int      $post_id  Post ID.
+	 * @param \WP_Post $post     Post.
+	 * @param array    $route    Route.
+	 * @param string   $rendered Rendered content HTML.
+	 * @return string
+	 */
+	private function collect_page_inline_css( $post_id, $post, array $route, $rendered ) {
+		$chunks = array();
+
+		$atomic = get_post_meta( $post_id, '_atomic_wind_css', true );
+		if ( is_string( $atomic ) && trim( $atomic ) ) {
+			$chunks[] = "/* otter:_atomic_wind_css */\n" . trim( $atomic );
+		}
+
+		$url = get_permalink( $post );
+		if ( ! $url && ! empty( $route['path'] ) ) {
+			$url = home_url( (string) $route['path'] );
+		}
+		$html = $url ? Front_Html::fetch( $url ) : null;
+		if ( $html ) {
+			if ( preg_match_all( '/<style\b([^>]*)>(.*?)<\/style>/is', $html, $matches, PREG_SET_ORDER ) ) {
+				foreach ( $matches as $i => $match ) {
+					$attrs = $match[1];
+					$css   = trim( $match[2] );
+					if ( '' === $css ) {
+						continue;
+					}
+					$id = '';
+					if ( preg_match( '/\bid=[\'"]([^\'"]+)[\'"]/i', $attrs, $m ) ) {
+						$id = $m[1];
+					}
+					$keep = false;
+					if ( $id && preg_match( '/atomic-wind|otter-form|otter-|global-styles|classic-theme/i', $id ) ) {
+						$keep = true;
+					}
+					if ( ! $keep && preg_match( '/@layer\s+utilities|wp-block-otter-form|wp-block-atomic-wind/i', $css ) ) {
+						$keep = true;
+					}
+					if ( ! $keep ) {
+						continue;
+					}
+					// Skip tiny nav chrome.
+					if ( strlen( $css ) < 80 ) {
+						continue;
+					}
+					$label    = $id ? $id : ( 'page-style-' . $i );
+					$chunks[] = "/* live:{$label} */\n" . $css;
+				}
+			}
+		}
+
+		// Deduplicate identical blobs (home cache often equals live tailwind tag).
+		$seen = array();
+		$uniq = array();
+		foreach ( $chunks as $chunk ) {
+			$hash = md5( $chunk );
+			if ( isset( $seen[ $hash ] ) ) {
+				continue;
+			}
+			$seen[ $hash ] = true;
+			$uniq[]        = $chunk;
+		}
+
+		return $uniq ? implode( "\n\n", $uniq ) : '';
+	}
+
+	/**
+	 * Crawl the public permalink and extract the main content region.
+	 *
+	 * @param \WP_Post $post          Post.
+	 * @param array    $route         Route descriptor.
+	 * @param bool     $is_posts_page Whether this is the WP posts index page.
+	 * @return string
+	 */
+	private function capture_live_content( $post, array $route, $is_posts_page = false ) {
+		$url = get_permalink( $post );
+		if ( ! $url && ! empty( $route['path'] ) ) {
+			$url = home_url( (string) $route['path'] );
+		}
+		if ( ! $url ) {
+			return '';
+		}
+
+		$html = Front_Html::fetch( $url );
+		if ( ! $html ) {
+			$this->warnings[] = sprintf(
+				'Live crawl failed for %s — content may be empty.',
+				isset( $route['path'] ) ? $route['path'] : (string) $post->ID
+			);
+			return '';
+		}
+
+		$slot = $is_posts_page
+			? Front_Html::extract_posts_index( $html )
+			: Front_Html::extract_content( $html );
+		if ( ! $slot ) {
+			return '';
+		}
+
+		return $this->resolver->resolve(
+			$slot,
+			array(
+				'postId' => (int) $post->ID,
+				'path'   => isset( $route['path'] ) ? $route['path'] : '',
+			)
+		);
 	}
 
 	/**
@@ -342,96 +435,6 @@ class Page_Exporter {
 	}
 
 	/**
-	 * Expand template / CTA embeds discovered in `_elementor_data` by rendering
-	 * each target post ID from `wp_postmeta._elementor_data`.
-	 *
-	 * @param string  $html    Already-rendered page HTML.
-	 * @param array[] $found   Shortcode inventory from Elementor tree.
-	 * @param int     $post_id Host page ID.
-	 * @param array   $route   Route descriptor.
-	 * @return string
-	 */
-	private function expand_elementor_embeds( $html, array $found, $post_id, array $route ) {
-		$html = is_string( $html ) ? $html : '';
-
-		foreach ( $found as $row ) {
-			$id = 0;
-			if ( ! empty( $row['templateId'] ) ) {
-				$id = (int) $row['templateId'];
-			} elseif ( ! empty( $row['attrs'] ) && is_array( $row['attrs'] ) ) {
-				$id = Shortcode_Resolver::extract_document_id( $row['attrs'] );
-			}
-			if ( $id <= 0 || $id === (int) $post_id ) {
-				continue;
-			}
-			if ( ! Elementor_Bridge::has_elementor_data( $id ) ) {
-				continue;
-			}
-
-			$this->elementor->ensure_post_css( $id );
-			$inner = $this->elementor->render( $id, array( 'resolve_shortcodes' => true ) );
-			if ( ! is_string( $inner ) || '' === trim( $inner ) ) {
-				continue;
-			}
-
-			$this->resolved_document_ids[ $id ] = true;
-
-			// Template widgets often inject markup without the nested document's
-			// <style> block (Improved CSS Loading). Prepend those styles so
-			// shortcode/template CSS (logo carousels, CTAs) actually applies.
-			if ( preg_match_all( '#<style\b[^>]*>.*?</style>#is', $inner, $style_matches ) ) {
-				foreach ( $style_matches[0] as $style_tag ) {
-					if ( false === strpos( $html, $style_tag ) ) {
-						$html = $style_tag . "\n" . $html;
-					}
-				}
-			}
-
-			$raw = isset( $row['raw'] ) ? (string) $row['raw'] : '';
-			if ( $raw && false !== strpos( $html, $raw ) ) {
-				$html = str_replace( $raw, $inner, $html );
-			} elseif (
-				false === strpos( $html, 'elementor-' . $id )
-				&& false === strpos( $html, 'data-elementor-id="' . $id . '"' )
-			) {
-				$html .= "\n" . $inner;
-			}
-		}
-
-		return $html;
-	}
-
-	/**
-	 * Persist Elementor <style> blocks as a sidecar CSS file.
-	 * Improved CSS Loading often never writes post-{id}.css.
-	 *
-	 * @param string $dir  Page dir in the bundle.
-	 * @param string $html Rendered HTML.
-	 * @return string|null Relative path of inline.css or null.
-	 */
-	private function write_extracted_styles( $dir, $html ) {
-		if ( ! is_string( $html ) || false === stripos( $html, '<style' ) ) {
-			return null;
-		}
-		if ( ! preg_match_all( '#<style\b[^>]*>(.*?)</style>#is', $html, $matches ) ) {
-			return null;
-		}
-		$chunks = array();
-		foreach ( $matches[1] as $css ) {
-			$css = trim( (string) $css );
-			if ( '' !== $css ) {
-				$chunks[] = $css;
-			}
-		}
-		if ( ! $chunks ) {
-			return null;
-		}
-		$file = $dir . '/inline.css';
-		$this->writer->write( $file, implode( "\n\n", $chunks ) );
-		return $file;
-	}
-
-	/**
 	 * Turn a route path into a filesystem-safe key.
 	 *
 	 * @param string $path Route path.
@@ -450,13 +453,12 @@ class Page_Exporter {
 	/**
 	 * Audit results.
 	 *
-	 * @return array{unresolvedShortcodes:array,warnings:array,resolvedDocumentIds:array}
+	 * @return array{unresolvedShortcodes:array,warnings:array}
 	 */
 	public function audit() {
 		return array(
 			'unresolvedShortcodes' => $this->unresolved,
 			'warnings'             => $this->warnings,
-			'resolvedDocumentIds'  => array_map( 'intval', array_keys( $this->resolved_document_ids ) ),
 		);
 	}
 }

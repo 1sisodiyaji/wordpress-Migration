@@ -3,6 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { getProjectDir } from "../../generator/lib/scaffold";
 import { assertValidAppTsx } from "../../generator/lib/app-shell-template";
+import { killProcessTree } from "../../lib/kill-dev-port";
+import { installProjectDeps } from "../../lib/install-project-deps";
 import { importLocalSource } from "../../lib/wp-import/import-local";
 import { importPluginExport } from "../../lib/wp-import/import-plugin-export";
 import {
@@ -205,7 +207,7 @@ export async function runGenerate(slug: string): Promise<StudioMeta> {
     }
     assertValidAppTsx(fs.readFileSync(appPath, "utf8"));
 
-    await runCmd("pnpm", ["install"], projectDir);
+    await installProjectDeps(projectDir);
 
     patchStudioMeta(slug, { generateStatus: "done", editorPort: port });
     return readStudioMeta(slug)!;
@@ -287,11 +289,11 @@ export function stopScrape(_slug: string): void {
 
 export function stopEditor(slug: string, opts: { skipMeta?: boolean } = {}): void {
   const child = editorProcesses.get(slug);
-  if (child) {
-    child.kill("SIGTERM");
-    editorProcesses.delete(slug);
-  }
   const meta = readStudioMeta(slug);
+  // Windows: SIGTERM on the pnpm shell often leaves nested `node vite` locking the folder.
+  killProcessTree(child?.pid);
+  killProcessTree(meta?.editorPid);
+  if (child) editorProcesses.delete(slug);
   releasePort(meta?.editorPort);
   if (!opts.skipMeta && meta) {
     patchStudioMeta(slug, { editorStatus: "stopped", editorPid: undefined });

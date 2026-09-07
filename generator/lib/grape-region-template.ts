@@ -4,9 +4,21 @@
  */
 
 export function buildGrapeRegionTsx(): string {
-  return `import { useEffect, useRef } from "react";
+  return `import { useCallback, useEffect, useRef, useState } from "react";
 import grapesjs from "grapesjs";
 import type { Editor } from "grapesjs";
+import {
+  Code2,
+  ExternalLink,
+  Eye,
+  Laptop,
+  Monitor,
+  Redo2,
+  Smartphone,
+  Tablet,
+  Undo2,
+  X,
+} from "lucide-react";
 import siteData from "../../data/site.json";
 import { getHeaderHtml, getHeaderBlocks } from "../layout/SiteHeader";
 import { getFooterHtml, getFooterBlocks } from "../layout/SiteFooter";
@@ -18,35 +30,19 @@ interface Props {
 
 /** Elementor-aligned breakpoints (max-width media queries). */
 const DEVICES = [
-  { id: "desktop", name: "Desktop", width: "", widthMedia: "" },
-  { id: "laptop", name: "Laptop", width: "1366px", widthMedia: "1366px" },
-  { id: "tablet", name: "Tablet", width: "768px", widthMedia: "1024px" },
-  { id: "mobilePortrait", name: "Mobile", width: "375px", widthMedia: "767px" },
+  { id: "desktop", name: "Desktop", short: "Desk", width: "", widthMedia: "", Icon: Monitor },
+  { id: "laptop", name: "Laptop", short: "Lap", width: "1366px", widthMedia: "1366px", Icon: Laptop },
+  { id: "tablet", name: "Tablet", short: "Tab", width: "768px", widthMedia: "1024px", Icon: Tablet },
+  { id: "mobilePortrait", name: "Mobile", short: "Phone", width: "375px", widthMedia: "767px", Icon: Smartphone },
 ] as const;
 
-function toolbarIcon(paths: string): string {
-  return \`<span class="grape-tb-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">\${paths}</svg></span>\`;
-}
-
-const DEVICE_ICONS: Record<(typeof DEVICES)[number]["id"], string> = {
-  desktop: toolbarIcon('<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>'),
-  laptop: toolbarIcon('<rect x="3" y="5" width="18" height="11" rx="1.5"/><path d="M2 19h20"/>'),
-  tablet: toolbarIcon('<rect x="4" y="2" width="16" height="20" rx="2"/><circle cx="12" cy="18" r="0.5" fill="currentColor"/>'),
-  mobilePortrait: toolbarIcon('<rect x="7" y="2" width="10" height="20" rx="2"/><circle cx="12" cy="18" r="0.5" fill="currentColor"/>'),
-};
-
-const ACTION_ICONS = {
-  undo: toolbarIcon('<path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/>'),
-  redo: toolbarIcon('<path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13"/>'),
-  visibility: toolbarIcon('<rect x="3" y="3" width="18" height="18" rx="1"/><path d="M3 9h18"/><path d="M9 3v18"/><path d="M15 3v18"/><path d="M3 15h18"/>'),
-  preview: toolbarIcon('<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>'),
-};
+type DeviceId = (typeof DEVICES)[number]["id"];
 
 function grapeStorageKey(pageKey: string): string {
   const fp = siteData.exportFingerprint ?? siteData.slug;
   const page = siteData.pages.find((p) => p.key === pageKey);
   const mode = page?.contentMode ?? "html";
-  return \`grape-\${fp}-\${mode}-layout-v18-\${pageKey}\`;
+  return \`grape-\${fp}-\${mode}-layout-v22-\${pageKey}\`;
 }
 
 function hasStoredProject(pageKey: string): boolean {
@@ -155,7 +151,8 @@ function registerLayoutComponents(editor: Editor): void {
 }
 
 function blockIcon(paths: string): string {
-  return \`<svg class="grape-block-icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">\${paths}</svg>\`;
+  // Outline-only icons — filled glyphs disappear on the dark Elements panel.
+  return \`<svg class="grape-block-icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">\${paths}</svg>\`;
 }
 
 function registerBasicBlocks(editor: Editor): void {
@@ -297,8 +294,8 @@ function registerBasicBlocks(editor: Editor): void {
     "icon",
     "Icon",
     mediaCat,
-    '<span style="font-size:32px;line-height:1;color:#0d9488;">★</span>',
-    blockIcon('<path d="M12 3l2.4 4.9 5.4.8-3.9 3.8.9 5.4L12 15.9 7.2 18l.9-5.4L4.2 8.7l5.4-.8L12 3z"/>'),
+    '<span style="font-size:32px;line-height:1;color:#0d9488;">☆</span>',
+    blockIcon('<polygon points="12 3 14.5 9.5 21.5 10 16.2 14.5 18 21 12 17.5 6 21 7.8 14.5 2.5 10 9.5 9.5 12 3"/>'),
   );
 }
 
@@ -350,8 +347,53 @@ function updateDeviceBadge(editor: Editor, badge: HTMLElement | null): void {
   if (!badge) return;
   const device = editor.getDevice();
   const meta = DEVICES.find((d) => d.id === device || d.name === device);
-  badge.textContent = meta?.name ?? String(device);
-  badge.setAttribute("title", \`Viewport: \${meta?.name ?? device}\`);
+  const width = meta?.width ? meta.width : "fluid";
+  badge.textContent = meta ? \`\${meta.name} · \${width === "fluid" ? "full" : width}\` : String(device);
+  badge.setAttribute("title", \`Viewport: \${meta?.name ?? device} (\${width})\`);
+}
+
+function applyDeviceFrame(editor: Editor): void {
+  const device = editor.getDevice();
+  const meta = DEVICES.find((d) => d.id === device || d.name === device);
+  const width = meta?.width?.trim() || "";
+  const frameWrap = editor
+    .getContainer()
+    ?.querySelector(".gjs-frame-wrapper") as HTMLElement | null;
+  if (frameWrap) {
+    frameWrap.style.width = width || "100%";
+    frameWrap.style.maxWidth = width || "100%";
+    frameWrap.style.marginLeft = "auto";
+    frameWrap.style.marginRight = "auto";
+    frameWrap.style.transition = "width 0.2s ease, max-width 0.2s ease";
+  }
+  // GrapesJS applies device width to the canvas iframe; force a layout pass.
+  try {
+    editor.refresh();
+  } catch {
+    /* editor not fully ready */
+  }
+}
+
+function registerDeviceCommands(editor: Editor): void {
+  for (const d of DEVICES) {
+    const cmd = \`set-device-\${d.id}\`;
+    if (!editor.Commands.get(cmd)) {
+      editor.Commands.add(cmd, {
+        run: (ed: Editor) => {
+          ed.setDevice(d.id);
+        },
+      });
+    }
+    // Also alias by display name (some Grapes builds expect this).
+    const byName = \`set-device-\${d.name}\`;
+    if (!editor.Commands.get(byName)) {
+      editor.Commands.add(byName, {
+        run: (ed: Editor) => {
+          ed.setDevice(d.id);
+        },
+      });
+    }
+  }
 }
 
 function isBlankCanvasHtml(html: string | undefined | null): boolean {
@@ -481,13 +523,22 @@ const STYLE_SECTORS = [
 export function GrapeRegion({ pageKey, initialHtml }: Props) {
   const shellRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
-  const deviceBadgeRef = useRef<HTMLSpanElement>(null);
   const editorRef = useRef<Editor | null>(null);
+  const [deviceId, setDeviceId] = useState<DeviceId>("desktop");
+  const [outlinesOn, setOutlinesOn] = useState(true);
+  const [isPreview, setIsPreview] = useState(false);
+  const [showCode, setShowCode] = useState(false);
+  const [codeText, setCodeText] = useState("");
   const pageMeta = siteData.pages.find((p) => p.key === pageKey);
   const contentMode = pageMeta?.contentMode ?? "html";
   const blocksKey = JSON.stringify(pageMeta?.grapeBlocks ?? null);
   const stylesKey = JSON.stringify(pageMeta?.canvasStyles ?? siteData.canvasStyles ?? []);
   const scriptsKey = JSON.stringify(pageMeta?.canvasScripts ?? siteData.canvasScripts ?? []);
+
+  const deviceMeta = DEVICES.find((d) => d.id === deviceId) ?? DEVICES[0];
+  const deviceLabel = deviceMeta.width
+    ? \`\${deviceMeta.name} · \${deviceMeta.width}\`
+    : \`\${deviceMeta.name} · full\`;
 
   useEffect(() => {
     const onHashChange = () => {
@@ -513,19 +564,16 @@ export function GrapeRegion({ pageKey, initialHtml }: Props) {
     const initialContent = buildPageComponents(
       useBlocks,
       grapeBlocks,
-      bodyHtml || "<div class=\\"empty-page\\">Empty page</div>",
+      bodyHtml || '<div class="empty-page">Empty page</div>',
     );
     const autoload = hasStoredProject(pageKey);
     let ready = false;
 
-    const deviceButtons = DEVICES.map((d, i) => ({
-      id: \`device-\${d.id}\`,
-      className: "grape-device-btn",
-      label: DEVICE_ICONS[d.id],
-      command: \`set-device-\${d.id}\`,
-      active: i === 0,
-      togglable: false,
-      attributes: { title: d.name, "aria-label": d.name },
+    const grapeDevices = DEVICES.map(({ id, name, width, widthMedia }) => ({
+      id,
+      name,
+      width,
+      widthMedia,
     }));
 
     const editor = grapesjs.init({
@@ -541,7 +589,7 @@ export function GrapeRegion({ pageKey, initialHtml }: Props) {
         autoload,
         options: { local: { key: grapeStorageKey(pageKey) } },
       },
-      deviceManager: { devices: [...DEVICES] },
+      deviceManager: { devices: grapeDevices },
       blockManager: { appendTo: ".grape-blocks-panel", blocks: [] },
       selectorManager: { appendTo: ".grape-styles-panel" },
       styleManager: {
@@ -552,46 +600,6 @@ export function GrapeRegion({ pageKey, initialHtml }: Props) {
       traitManager: { appendTo: ".grape-traits-panel" },
       panels: {
         defaults: [
-          {
-            id: "panel-actions",
-            el: ".grape-toolbar-actions",
-            buttons: [
-              {
-                id: "undo",
-                className: "grape-btn-icon",
-                label: ACTION_ICONS.undo,
-                command: "core:undo",
-                attributes: { title: "Undo", "aria-label": "Undo" },
-              },
-              {
-                id: "redo",
-                className: "grape-btn-icon",
-                label: ACTION_ICONS.redo,
-                command: "core:redo",
-                attributes: { title: "Redo", "aria-label": "Redo" },
-              },
-              {
-                id: "visibility",
-                className: "grape-btn-icon",
-                label: ACTION_ICONS.visibility,
-                command: "sw-visibility",
-                active: true,
-                attributes: { title: "Show outlines", "aria-label": "Show outlines" },
-              },
-              {
-                id: "preview",
-                className: "grape-btn-icon",
-                label: ACTION_ICONS.preview,
-                command: "preview",
-                attributes: { title: "Preview", "aria-label": "Preview" },
-              },
-            ],
-          },
-          {
-            id: "panel-devices",
-            el: ".grape-toolbar-devices",
-            buttons: deviceButtons,
-          },
           {
             id: "panel-sidebar-tabs",
             el: ".grape-sidebar-tabs",
@@ -635,9 +643,40 @@ export function GrapeRegion({ pageKey, initialHtml }: Props) {
     registerLayoutComponents(editor);
     registerBasicBlocks(editor);
     registerSidebarCommands(editor);
+    registerDeviceCommands(editor);
     editor.runCommand("show-blocks");
+    editor.setDevice("desktop");
+    editor.runCommand("sw-visibility");
 
-    editor.on("change:device", () => updateDeviceBadge(editor, deviceBadgeRef.current));
+    editor.on("change:device", () => {
+      const next = String(editor.getDevice() || "desktop") as DeviceId;
+      if (DEVICES.some((d) => d.id === next)) {
+        setDeviceId(next);
+      }
+      applyDeviceFrame(editor);
+    });
+
+    editor.on("run:preview", () => {
+      setIsPreview(true);
+      setShowCode(false);
+      shell.classList.add("is-preview");
+    });
+    editor.on("stop:preview", () => {
+      setIsPreview(false);
+      shell.classList.remove("is-preview");
+    });
+
+    editor.on("component:selected", (component) => {
+      if (shell.classList.contains("is-preview")) return;
+      const traits = component?.get?.("traits");
+      const traitCount =
+        typeof traits?.length === "number"
+          ? traits.length
+          : typeof traits?.models?.length === "number"
+            ? traits.models.length
+            : 0;
+      editor.runCommand(traitCount > 0 ? "show-traits" : "show-styles");
+    });
 
     const finishLoad = () => {
       if (ready) return;
@@ -650,7 +689,7 @@ export function GrapeRegion({ pageKey, initialHtml }: Props) {
       forceEagerImages(editor);
       applyElementorKitClasses(editor);
       scrollCanvasToHash(editor, window.location.hash);
-      updateDeviceBadge(editor, deviceBadgeRef.current);
+      applyDeviceFrame(editor);
       stripDefaultPanels(editor);
       shell.classList.add("grape-ready");
     };
@@ -666,34 +705,202 @@ export function GrapeRegion({ pageKey, initialHtml }: Props) {
       window.clearTimeout(fallbackTimer);
       editor.destroy();
       editorRef.current = null;
-      shell.classList.remove("grape-ready");
+      shell.classList.remove("grape-ready", "is-preview");
+      setIsPreview(false);
     };
   }, [pageKey, initialHtml, contentMode, blocksKey, stylesKey, scriptsKey]);
 
+  const selectDevice = useCallback((id: DeviceId) => {
+    setDeviceId(id);
+    const editor = editorRef.current;
+    if (!editor) return;
+    editor.setDevice(id);
+    applyDeviceFrame(editor);
+  }, []);
+
+  const runEditorCommand = useCallback((cmd: string) => {
+    editorRef.current?.runCommand(cmd);
+  }, []);
+
+  const toggleOutlines = useCallback(() => {
+    const editor = editorRef.current;
+    if (!editor || isPreview) return;
+    if (outlinesOn) {
+      editor.stopCommand("sw-visibility");
+      setOutlinesOn(false);
+    } else {
+      editor.runCommand("sw-visibility");
+      setOutlinesOn(true);
+    }
+  }, [outlinesOn, isPreview]);
+
+  const togglePreview = useCallback(() => {
+    const editor = editorRef.current;
+    const shell = shellRef.current;
+    if (!editor || !shell) return;
+
+    const next = !isPreview;
+    if (next) {
+      setShowCode(false);
+      try {
+        editor.stopCommand("sw-visibility");
+      } catch {
+        /* outlines may already be off */
+      }
+      try {
+        editor.runCommand("preview");
+      } catch {
+        /* custom layout still applies */
+      }
+      shell.classList.add("is-preview");
+      setIsPreview(true);
+    } else {
+      try {
+        editor.stopCommand("preview");
+      } catch {
+        /* ignore */
+      }
+      shell.classList.remove("is-preview");
+      setIsPreview(false);
+      if (outlinesOn) {
+        try {
+          editor.runCommand("sw-visibility");
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    window.requestAnimationFrame(() => {
+      try {
+        editor.refresh();
+      } catch {
+        /* ignore */
+      }
+    });
+  }, [isPreview, outlinesOn]);
+
+  const openCodeView = useCallback(() => {
+    const editor = editorRef.current;
+    if (!editor || isPreview) return;
+    const html = editor.getHtml() || "";
+    const css = editor.getCss() || "";
+    setCodeText(css ? \`\${html}\\n\\n/* —— CSS —— */\\n\${css}\` : html);
+    setShowCode(true);
+  }, [isPreview]);
+
   return (
     <div className="grape-region">
-      <div ref={shellRef} className="grape-editor-shell">
+      <div ref={shellRef} className={\`grape-editor-shell\${isPreview ? " is-preview" : ""}\`}>
         <div className="grape-editor-row">
           <div className="grape-canvas-wrap">
             <header className="grape-toolbar grape-toolbar--float">
               <div className="grape-toolbar-group">
-                <div className="grape-toolbar-actions" />
+                <div className="grape-toolbar-actions">
+                  <button
+                    type="button"
+                    className="grape-btn-icon"
+                    title="Undo"
+                    aria-label="Undo"
+                    disabled={isPreview}
+                    onClick={() => runEditorCommand("core:undo")}
+                  >
+                    <Undo2 size={15} strokeWidth={2} />
+                  </button>
+                  <button
+                    type="button"
+                    className="grape-btn-icon"
+                    title="Redo"
+                    aria-label="Redo"
+                    disabled={isPreview}
+                    onClick={() => runEditorCommand("core:redo")}
+                  >
+                    <Redo2 size={15} strokeWidth={2} />
+                  </button>
+                  <button
+                    type="button"
+                    className={\`grape-btn-icon\${outlinesOn && !isPreview ? " is-active" : ""}\`}
+                    title="Show outlines"
+                    aria-label="Show outlines"
+                    aria-pressed={outlinesOn && !isPreview}
+                    disabled={isPreview}
+                    onClick={toggleOutlines}
+                  >
+                    <Eye size={15} strokeWidth={2} />
+                  </button>
+                  <button
+                    type="button"
+                    className={\`grape-btn-icon\${isPreview ? " is-active" : ""}\`}
+                    title={isPreview ? "Exit preview" : "Preview"}
+                    aria-label={isPreview ? "Exit preview" : "Preview"}
+                    aria-pressed={isPreview}
+                    onClick={togglePreview}
+                  >
+                    <ExternalLink size={15} strokeWidth={2} />
+                  </button>
+                </div>
               </div>
               <div className="grape-toolbar-divider" aria-hidden="true" />
               <div className="grape-toolbar-group grape-toolbar-group--devices">
-                <div className="grape-toolbar-devices" />
+                <div className="grape-toolbar-devices" role="toolbar" aria-label="Viewport size">
+                  {DEVICES.map((d) => {
+                    const Icon = d.Icon;
+                    const active = d.id === deviceId;
+                    return (
+                      <button
+                        key={d.id}
+                        type="button"
+                        className={\`grape-device-btn\${active ? " is-active" : ""}\`}
+                        title={\`\${d.name}\${d.width ? \` (\${d.width})\` : " (full width)"}\`}
+                        aria-label={d.name}
+                        aria-pressed={active}
+                        onClick={() => selectDevice(d.id)}
+                      >
+                        <span className="grape-device-label">
+                          <Icon size={15} strokeWidth={active ? 2.25 : 1.75} />
+                          <span className="grape-device-text">{d.short}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
               <div className="grape-toolbar-divider" aria-hidden="true" />
               <div className="grape-toolbar-meta">
-                <span ref={deviceBadgeRef} className="grape-device-badge" title="Current viewport">
-                  Desktop
+                <span className="grape-device-badge" title="Current viewport">
+                  {deviceLabel}
                 </span>
-                <span className="grape-mode-badge" title="Header + page body + footer inside canvas">
-                  {contentMode === "blocks" ? "Blocks" : "HTML"}
-                </span>
+                <button
+                  type="button"
+                  className={\`grape-mode-btn\${showCode ? " is-active" : ""}\`}
+                  title="View page HTML / CSS in canvas"
+                  aria-label="View page source"
+                  aria-pressed={showCode}
+                  onClick={openCodeView}
+                >
+                  <Code2 size={12} strokeWidth={2.25} />
+                  <span>{contentMode === "blocks" ? "Blocks" : "HTML"}</span>
+                </button>
               </div>
             </header>
             <div ref={hostRef} className="grape-host" />
+            {showCode ? (
+              <div className="grape-code-overlay" role="dialog" aria-label="Page source">
+                <div className="grape-code-overlay__bar">
+                  <strong>Page source</strong>
+                  <span className="grape-code-overlay__hint">Canvas HTML + CSS</span>
+                  <button
+                    type="button"
+                    className="grape-btn-icon grape-code-overlay__close"
+                    title="Close"
+                    aria-label="Close code view"
+                    onClick={() => setShowCode(false)}
+                  >
+                    <X size={15} strokeWidth={2} />
+                  </button>
+                </div>
+                <pre className="grape-code-overlay__pre">{codeText}</pre>
+              </div>
+            ) : null}
           </div>
 
           <aside className="grape-sidebar">
@@ -821,10 +1028,32 @@ export const GRAPE_EDITOR_CSS = `
   justify-content: center;
   line-height: 0;
   pointer-events: none;
+  color: inherit;
 }
 
 .grape-tb-icon svg {
   display: block;
+  fill: none !important;
+  stroke: currentColor !important;
+}
+
+.grape-device-label {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.grape-device-text {
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: inherit;
+  opacity: 0.92;
 }
 
 .grape-toolbar-meta {
@@ -835,25 +1064,98 @@ export const GRAPE_EDITOR_CSS = `
 }
 
 .grape-device-badge {
-  font-size: 0;
-  width: 0;
-  height: 0;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #e2e8f0;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  padding: 0.3rem 0.55rem;
+  white-space: nowrap;
+  max-width: 9.5rem;
   overflow: hidden;
-  position: absolute;
-  pointer-events: none;
+  text-overflow: ellipsis;
 }
 
-.grape-mode-badge {
+.grape-mode-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
   font-size: 0.5625rem;
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  padding: 0.22rem 0.45rem;
+  padding: 0.28rem 0.55rem;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.06);
   color: var(--ge-muted);
   border: 1px solid rgba(255, 255, 255, 0.08);
   flex-shrink: 0;
+  cursor: pointer;
+  font-family: inherit;
+  line-height: 1;
+  transition: background 0.12s, color 0.12s, border-color 0.12s, box-shadow 0.12s;
+}
+
+.grape-mode-btn:hover {
+  color: var(--ge-text);
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.grape-mode-btn.is-active {
+  background: var(--ge-accent-dim);
+  color: #99f6e4;
+  border-color: rgba(20, 184, 166, 0.45);
+  box-shadow: 0 0 0 1px rgba(20, 184, 166, 0.2);
+}
+
+.grape-code-overlay {
+  position: absolute;
+  inset: 56px 12px 12px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(8, 12, 18, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+}
+
+.grape-code-overlay__bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+}
+
+.grape-code-overlay__bar strong {
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.grape-code-overlay__hint {
+  font-size: 0.625rem;
+  color: var(--ge-muted);
+  margin-right: auto;
+}
+
+.grape-code-overlay__pre {
+  margin: 0;
+  padding: 0.85rem 1rem 1.25rem;
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+  font-family: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: #d7e2ec;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 /* ── Workspace ────────────────────────────────────────────────────── */
@@ -871,9 +1173,7 @@ export const GRAPE_EDITOR_CSS = `
   display: flex;
   flex-direction: column;
   position: relative;
-  background:
-    radial-gradient(ellipse 80% 50% at 50% 0%, rgba(20, 184, 166, 0.06), transparent 55%),
-    linear-gradient(180deg, #151d28 0%, var(--ge-canvas) 40%);
+  background: #e8eef4;
 }
 
 .grape-host {
@@ -881,6 +1181,49 @@ export const GRAPE_EDITOR_CSS = `
   min-height: 0;
   height: 100%;
   padding-top: 0;
+}
+
+.grape-editor-shell.is-preview .grape-sidebar {
+  display: none !important;
+  width: 0 !important;
+  min-width: 0 !important;
+  max-width: 0 !important;
+  flex: 0 0 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: none !important;
+  overflow: hidden !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+.grape-editor-shell.is-preview .grape-editor-row {
+  display: flex;
+  width: 100%;
+}
+
+.grape-editor-shell.is-preview .grape-canvas-wrap {
+  flex: 1 1 100% !important;
+  width: 100% !important;
+  max-width: none !important;
+  min-width: 0 !important;
+}
+
+.grape-editor-shell.is-preview .grape-host,
+.grape-editor-shell.is-preview .gjs-editor,
+.grape-editor-shell.is-preview .gjs-cv-canvas,
+.grape-editor-shell.is-preview .gjs-cv-canvas__frames {
+  width: 100% !important;
+  max-width: none !important;
+}
+
+.grape-editor-shell.is-preview .grape-toolbar--float {
+  opacity: 0.92;
+}
+
+.grape-editor-shell .grape-btn-icon:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 /* ── Right inspector ──────────────────────────────────────────────── */
@@ -1042,9 +1385,19 @@ export const GRAPE_EDITOR_CSS = `
   line-height: 0;
 }
 
+.grape-blocks-panel .gjs-block__media svg,
 .grape-block-icon {
-  color: #5eead4;
-  opacity: 0.92;
+  color: #99f6e4;
+  opacity: 1;
+  fill: none !important;
+  stroke: currentColor !important;
+}
+
+.grape-blocks-panel .gjs-block__media svg *,
+.grape-block-icon * {
+  fill: none !important;
+  stroke: currentColor !important;
+  stroke-width: 1.6;
 }
 
 .grape-blocks-panel .gjs-block-label {
@@ -1103,35 +1456,68 @@ export const GRAPE_EDITOR_CSS = `
   transition: background 0.12s, color 0.12s, border-color 0.12s;
 }
 
-.grape-editor-shell .grape-toolbar--float .gjs-pn-btn {
+.grape-editor-shell .grape-btn-icon {
   min-width: 1.85rem;
   width: 1.85rem;
   height: 1.85rem;
-  line-height: 0;
-  padding: 0 !important;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ge-muted);
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
 }
 
-.grape-editor-shell .grape-toolbar-devices .gjs-pn-btn,
+.grape-editor-shell .grape-btn-icon:hover {
+  background: var(--ge-surface-2);
+  color: var(--ge-text);
+  border-color: var(--ge-border);
+}
+
+.grape-editor-shell .grape-btn-icon.is-active {
+  background: var(--ge-accent) !important;
+  color: #042f2e !important;
+  border-color: transparent !important;
+}
+
 .grape-editor-shell .grape-device-btn {
-  border-radius: 999px !important;
-  min-width: 1.85rem !important;
-  width: 1.85rem !important;
-  height: 1.85rem !important;
-  padding: 0 !important;
-  font-size: 0 !important;
+  appearance: none;
+  border-radius: 10px;
+  min-width: 2.75rem;
+  width: auto;
+  height: 2.4rem;
+  padding: 0.22rem 0.42rem;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ge-muted);
+  font-family: inherit;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s, box-shadow 0.12s;
 }
 
-.grape-editor-shell .grape-toolbar-devices .gjs-pn-btn.gjs-pn-active {
+.grape-editor-shell .grape-device-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ge-text);
+}
+
+.grape-editor-shell .grape-device-btn.is-active {
   background: var(--ge-accent) !important;
   color: #042f2e !important;
   box-shadow: 0 0 0 1px rgba(20, 184, 166, 0.4);
 }
 
-.grape-editor-shell .grape-toolbar-devices .gjs-pn-btn.gjs-pn-active .grape-tb-icon svg {
-  stroke: #042f2e;
+.grape-editor-shell .grape-device-btn.is-active .grape-device-text {
+  color: #042f2e;
+  opacity: 1;
 }
 
 .grape-editor-shell .gjs-pn-btn:hover {
@@ -1161,24 +1547,41 @@ export const GRAPE_EDITOR_CSS = `
 }
 
 .grape-editor-shell .gjs-cv-canvas {
-  background: transparent;
+  background: #e8eef4 !important;
   width: 100% !important;
   height: 100% !important;
   top: 0 !important;
 }
 
+.grape-editor-shell .gjs-cv-canvas__frames,
+.grape-editor-shell .gjs-cv-canvas__frames[data-frames] {
+  background: #e8eef4 !important;
+  top: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  transform: none !important;
+}
+
 .grape-editor-shell .gjs-frame-wrapper {
   background: #fff;
-  margin: 56px auto 18px;
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.04),
-    0 12px 40px rgba(0, 0, 0, 0.45);
-  border-radius: 6px;
+  margin: 0 auto !important;
+  box-shadow: none;
+  border-radius: 0;
+  width: 100%;
+  max-width: 100%;
+  min-height: 100%;
+  transition: width 0.2s ease, max-width 0.2s ease;
 }
 
 .grape-editor-shell .gjs-cv-canvas__frames,
 .grape-editor-shell .gjs-frame-wrapper {
   overflow: auto !important;
+}
+
+.grape-editor-shell.is-preview .gjs-frame-wrapper {
+  margin: 0 auto !important;
+  box-shadow: none;
+  border-radius: 0;
 }
 
 /* Style manager */
@@ -1291,7 +1694,7 @@ export const GRAPE_EDITOR_CSS = `
     padding: 0.28rem 0.4rem;
     gap: 0.2rem;
   }
-  .grape-mode-badge {
+  .grape-mode-btn {
     display: none;
   }
 }

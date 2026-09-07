@@ -8,19 +8,14 @@ import {
   startEditor,
   stopEditor,
   startGenerate,
-  startScrape,
-  syncPluginFromLocalWp,
   uploadPluginExport,
-  uploadWpParts,
   type Project,
-  type SourceType,
 } from "./api";
 import { useTheme } from "./hooks/useTheme";
 import { DashboardShell } from "./components/DashboardShell";
-import { NewProjectPanel, type PluginPullCreds } from "./components/NewProjectPanel";
-import { ProjectFlow } from "./components/ProjectFlow";
+import { NewProjectPanel } from "./components/NewProjectPanel";
+import { ProjectFlow, type SyncFromWpCreds } from "./components/ProjectFlow";
 import { ProjectList } from "./components/ProjectList";
-import type { WpUploadParts } from "./components/WpFileUploads";
 
 type Route = { kind: "dashboard" } | { kind: "project"; slug: string };
 
@@ -58,7 +53,6 @@ function migrateLegacyHash(): void {
       return;
     }
   }
-  // #/dashboard and anything else → /
   window.history.replaceState(null, "", "/");
 }
 
@@ -124,34 +118,25 @@ export default function App() {
     setActive(p);
   }
 
-  async function handleCreate(body: {
-    name: string;
-    sourceType: SourceType;
-    wpParts?: WpUploadParts;
-    pluginZip?: File;
-    pluginPull?: PluginPullCreds;
-  }) {
+  async function handleCreate(body: { name: string }) {
     setError(null);
-    const project = await createProject({ name: body.name, sourceType: body.sourceType });
-    if (body.wpParts) await uploadWpParts(project.slug, body.wpParts);
+    const project = await createProject({ name: body.name, sourceType: "plugin" });
     setShowNew(false);
     await openProject(project.slug);
-    if (body.pluginZip) await uploadPluginExport(project.slug, body.pluginZip);
-    else if (body.pluginPull) await pullPluginExport(project.slug, body.pluginPull);
     await refresh();
   }
 
-  async function handleScrape() {
+  async function handleSyncFromWp(creds: SyncFromWpCreds) {
     if (!active) return;
     setError(null);
-    await startScrape(active.slug);
+    await pullPluginExport(active.slug, creds);
     await refresh();
   }
 
-  async function handleSyncFromWp() {
+  async function handleUploadExport(bundle: File) {
     if (!active) return;
     setError(null);
-    await syncPluginFromLocalWp(active.slug, { copyMedia: true });
+    await uploadPluginExport(active.slug, bundle);
     await refresh();
   }
 
@@ -177,13 +162,6 @@ export default function App() {
     await refresh();
   }
 
-  async function handleUpload(parts: WpUploadParts) {
-    if (!active) return;
-    setError(null);
-    await uploadWpParts(active.slug, parts);
-    await refresh();
-  }
-
   async function handleDelete(slug: string) {
     setError(null);
     try {
@@ -193,13 +171,16 @@ export default function App() {
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+      throw err;
     }
   }
 
   const dashTitle =
     route.kind === "project" ? active?.meta?.name ?? active?.slug ?? "Project" : "Projects";
   const dashSubtitle =
-    route.kind === "project" ? "Import → convert → open editor" : "Your migration workspace";
+    route.kind === "project"
+      ? "Upload ZIP or sync URL → convert → open editor"
+      : "Your migration workspace";
 
   return (
     <DashboardShell
@@ -262,12 +243,11 @@ export default function App() {
           <ProjectFlow
             project={active}
             onBack={() => navigate({ kind: "dashboard" })}
-            onScrape={handleScrape}
             onSyncFromWp={handleSyncFromWp}
+            onUploadExport={handleUploadExport}
             onGenerate={handleGenerate}
             onOpenEditor={handleOpenEditor}
             onStopEditor={handleStopEditor}
-            onUpload={handleUpload}
             onDelete={() => handleDelete(active.slug)}
           />
         ) : (

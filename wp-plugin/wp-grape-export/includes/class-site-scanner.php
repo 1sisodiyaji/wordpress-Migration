@@ -117,7 +117,9 @@ class Site_Scanner {
 				'stylesheet'   => get_stylesheet(),
 				'template'     => get_template(),
 				'version'      => $theme->get( 'Version' ),
-				'hasThemeJson' => (bool) ( method_exists( 'WP_Theme_JSON_Resolver', 'theme_has_support' ) && \WP_Theme_JSON_Resolver::theme_has_support() ),
+				'hasThemeJson' => function_exists( 'wp_theme_has_theme_json' )
+					? (bool) wp_theme_has_theme_json()
+					: (bool) ( method_exists( 'WP_Theme_JSON_Resolver', 'theme_has_support' ) && \WP_Theme_JSON_Resolver::theme_has_support() ),
 			),
 			'activePlugins'  => $this->active_plugins(),
 			'builderPlugins' => $this->builder_plugins(),
@@ -125,31 +127,123 @@ class Site_Scanner {
 	}
 
 	/**
-	 * Detect the primary page builder used by the front page / most pages.
+	 * Detect the primary page builder from the front page, then majority of routes.
 	 *
-	 * @return string
+	 * Important: Elementor being *installed* is not enough — many Neve/Otter sites
+	 * have Elementor inactive or unused. Always prefer content-based detection.
+	 *
+	 * @return string elementor|gutenberg|divi|wpbakery|beaver|classic
 	 */
 	public function detect_builder() {
-		if ( defined( 'ELEMENTOR_VERSION' ) || is_plugin_active_safe( 'elementor/elementor.php' ) ) {
-			$front = $this->front_page_id();
-			if ( $front && get_post_meta( $front, '_elementor_edit_mode', true ) === 'builder' ) {
-				return 'elementor';
+		$front = $this->front_page_id();
+		if ( $front ) {
+			$front_builder = $this->post_builder( $front );
+			if ( 'classic' !== $front_builder ) {
+				return $front_builder;
 			}
+		}
+
+		$counts = array(
+			'elementor' => 0,
+			'gutenberg' => 0,
+			'divi'      => 0,
+			'wpbakery'  => 0,
+			'beaver'    => 0,
+			'classic'   => 0,
+		);
+
+		$posts = get_posts(
+			array(
+				'post_type'      => array( 'page', 'post' ),
+				'post_status'    => 'publish',
+				'posts_per_page' => 40,
+				'orderby'        => 'menu_order title',
+				'order'          => 'ASC',
+				'fields'         => 'ids',
+			)
+		);
+
+		foreach ( $posts as $post_id ) {
+			$builder = $this->post_builder( (int) $post_id );
+			if ( isset( $counts[ $builder ] ) ) {
+				$counts[ $builder ]++;
+			}
+		}
+
+		arsort( $counts );
+		$top = (string) key( $counts );
+		if ( $top && $counts[ $top ] > 0 ) {
+			return $top;
+		}
+
+		if ( defined( 'ELEMENTOR_VERSION' ) && $this->site_has_elementor_content() ) {
 			return 'elementor';
 		}
 
-		if ( function_exists( 'has_blocks' ) ) {
-			$front = $this->front_page_id();
-			if ( $front && has_blocks( get_post_field( 'post_content', $front ) ) ) {
-				return 'gutenberg';
-			}
+		return 'classic';
+	}
+
+	/**
+	 * Whether any published page/post is actually built with Elementor.
+	 *
+	 * @return bool
+	 */
+	private function site_has_elementor_content() {
+		$q = new \WP_Query(
+			array(
+				'post_type'              => array( 'page', 'post' ),
+				'post_status'            => 'publish',
+				'posts_per_page'         => 1,
+				'fields'                 => 'ids',
+				'no_found_rows'          => true,
+				'update_post_meta_cache' => false,
+				'update_post_term_cache' => false,
+				'meta_query'             => array( // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query
+					array(
+						'key'   => '_elementor_edit_mode',
+						'value' => 'builder',
+					),
+				),
+			)
+		);
+		return $q->have_posts();
+	}
+
+	/**
+	 * Determine the builder used by a single post.
+	 *
+	 * @param int $post_id Post ID.
+	 * @return string
+	 */
+	public function post_builder( $post_id ) {
+		$post_id = (int) $post_id;
+		if ( $post_id <= 0 ) {
+			return 'classic';
 		}
 
-		if ( defined( 'ET_BUILDER_VERSION' ) ) {
+		if ( get_post_meta( $post_id, '_elementor_edit_mode', true ) === 'builder' ) {
+			return 'elementor';
+		}
+
+		$content = (string) get_post_field( 'post_content', $post_id );
+
+		if ( false !== strpos( $content, '[et_pb_' ) || false !== strpos( $content, 'et_pb_section' ) ) {
 			return 'divi';
 		}
-		if ( defined( 'WPB_VC_VERSION' ) ) {
+		if ( false !== strpos( $content, '[vc_' ) ) {
 			return 'wpbakery';
+		}
+		if ( false !== strpos( $content, '[fl_builder' ) || get_post_meta( $post_id, '_fl_builder_enabled', true ) ) {
+			return 'beaver';
+		}
+
+		if ( function_exists( 'has_blocks' ) && has_blocks( $content ) ) {
+			return 'gutenberg';
+		}
+
+		// Block markup without has_blocks() (rare edge cases).
+		if ( false !== strpos( $content, '<!-- wp:' ) || false !== strpos( $content, 'wp-block-' ) ) {
+			return 'gutenberg';
 		}
 
 		return 'classic';
@@ -199,15 +293,27 @@ class Site_Scanner {
 				}
 
 				$is_front = ( (int) $post->ID === (int) $front_id );
+				$is_posts = ( (int) $post->ID === (int) get_option( 'page_for_posts' ) );
 				if ( $is_front ) {
 					$path = '/';
+				}
+
+				$type = 'cpt';
+				if ( $is_front ) {
+					$type = 'home';
+				} elseif ( $is_posts ) {
+					$type = 'blog';
+				} elseif ( 'page' === $post_type ) {
+					$type = 'page';
+				} elseif ( 'post' === $post_type ) {
+					$type = 'post';
 				}
 
 				$routes[] = array(
 					'id'          => (int) $post->ID,
 					'path'        => $path,
 					'slug'        => $post->post_name,
-					'type'        => $is_front ? 'home' : ( 'page' === $post_type ? 'page' : ( 'post' === $post_type ? 'post' : 'cpt' ) ),
+					'type'        => $type,
 					'postType'    => $post_type,
 					'title'       => get_the_title( $post ),
 					'status'      => $post->post_status,
@@ -216,6 +322,7 @@ class Site_Scanner {
 					'parentId'    => $post->post_parent ? (int) $post->post_parent : null,
 					'menuOrder'   => (int) $post->menu_order,
 					'isFront'     => $is_front,
+					'isPostsPage' => $is_posts,
 				);
 			}
 		}
@@ -306,23 +413,6 @@ class Site_Scanner {
 	}
 
 	/**
-	 * Determine the builder used by a single post.
-	 *
-	 * @param int $post_id Post ID.
-	 * @return string
-	 */
-	public function post_builder( $post_id ) {
-		if ( get_post_meta( $post_id, '_elementor_edit_mode', true ) === 'builder' ) {
-			return 'elementor';
-		}
-		$content = get_post_field( 'post_content', $post_id );
-		if ( function_exists( 'has_blocks' ) && has_blocks( $content ) ) {
-			return 'gutenberg';
-		}
-		return 'classic';
-	}
-
-	/**
 	 * Front page (static) ID, or the latest-post-page front where applicable.
 	 *
 	 * @return int
@@ -407,7 +497,19 @@ class Site_Scanner {
 	 * @return string[]
 	 */
 	private function builder_plugins() {
-		$needles = array( 'elementor', 'elementskit', 'divi', 'js_composer', 'beaver', 'brizy', 'oxygen', 'astra' );
+		$needles = array(
+			'elementor',
+			'elementskit',
+			'divi',
+			'js_composer',
+			'beaver',
+			'brizy',
+			'oxygen',
+			'astra',
+			'otter',
+			'templates-patterns',
+			'gutenberg',
+		);
 		$out     = array();
 		foreach ( $this->active_plugins() as $plugin ) {
 			foreach ( $needles as $needle ) {
