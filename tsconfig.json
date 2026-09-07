@@ -14,10 +14,17 @@
     "jsx": "react-jsx",
     "baseUrl": ".",
     "paths": {
-      "@lib/*": ["lib/*"]
+      "@lib/*": ["Converter/shared/*"]
     },
     "types": ["node"]
   },
-  "include": ["scraper/**/*.ts", "generator/**/*.ts", "lib/**/*.ts", "studio/**/*.ts", "studio/**/*.tsx", "studio/**/*.jsx", "scripts/**/*.ts"],
-  "exclude": ["node_modules", "projects/**", "sites/**", "public/**"]
+  "include": [
+    "Converter/**/*.ts",
+    "Converter/**/*.tsx",
+    "Admin/**/*.ts",
+    "Admin/**/*.tsx",
+    "Admin/**/*.jsx",
+    "Scripts/**/*.ts"
+  ],
+  "exclude": ["node_modules", "Projects/**", "Docker/**"]
 }

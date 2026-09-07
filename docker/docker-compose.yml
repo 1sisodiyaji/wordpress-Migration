@@ -1,0 +1,41 @@
+services:
+  radius_db:
+    image: mariadb:10.11
+    restart: unless-stopped
+    environment:
+      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+      MYSQL_DATABASE: radius_ois
+    volumes:
+      - radius_db_data:/var/lib/mysql
+      - ./try-data/radius-ois/Radius-ois.sql:/docker-entrypoint-initdb.d/Radius-ois.sql:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 120s
+
+  radius_wordpress:
+    build: ./wordpress
+    restart: unless-stopped
+    depends_on:
+      radius_db:
+        condition: service_healthy
+    ports:
+      - "8084:80"
+    volumes:
+      - ./try-data/radius-ois/www:/var/www/html
+      - ../Plugin:/var/www/html/wp-content/plugins/wp-grape-export
+
+  radius_phpmyadmin:
+    image: phpmyadmin:latest
+    restart: unless-stopped
+    depends_on:
+      - radius_db
+    environment:
+      PMA_HOST: radius_db
+    ports:
+      - "8085:80"
+
+volumes:
+  radius_db_data:

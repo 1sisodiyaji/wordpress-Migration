@@ -1,0 +1,64 @@
+# Fresh WordPress — separate from Radius-OIS (8084).
+# Start:  pnpm wp:fresh:up
+# Stop:   pnpm wp:fresh:down
+# Site:   http://localhost:5001
+#
+# Clean stock WordPress — no plugin bind-mounts.
+# Upload plugins via wp-admin (e.g. wp-grape-export-0.1.11.zip).
+
+name: wp-fresh
+
+services:
+  fresh_db:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: wordpress
+      MYSQL_USER: wordpress
+      MYSQL_PASSWORD: wordpress
+      MYSQL_ROOT_PASSWORD: rootpassword
+    volumes:
+      - fresh_db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-prootpassword"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  fresh_wordpress:
+    image: wordpress:6.7-php8.2-apache
+    restart: unless-stopped
+    depends_on:
+      fresh_db:
+        condition: service_healthy
+    ports:
+      - "5001:80"
+    environment:
+      WORDPRESS_DB_HOST: fresh_db
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: wordpress
+      WORDPRESS_DB_NAME: wordpress
+      WORDPRESS_DEBUG: "1"
+    volumes:
+      - fresh_wp_data:/var/www/html
+      - ./wordpress/uploads.ini:/usr/local/etc/php/conf.d/uploads.ini:ro
+
+  fresh_wpcli:
+    image: wordpress:cli-php8.2
+    depends_on:
+      - fresh_wordpress
+    environment:
+      WORDPRESS_DB_HOST: fresh_db
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: wordpress
+      WORDPRESS_DB_NAME: wordpress
+    volumes:
+      - fresh_wp_data:/var/www/html
+    user: "33:33"
+    entrypoint: ["wp", "--allow-root"]
+    profiles: ["setup"]
+
+volumes:
+  fresh_db_data:
+  fresh_wp_data:

@@ -10,27 +10,22 @@ node_modules/
 !.yarn/releases
 !.yarn/versions
 
-# ─── generated / site project data (keep repo as source-only) ────────────────
-# Migrated WP site snapshots imported by Studio / plugin
-/sites/
-/public/sites/
-/public/preview-static/
-/public/wp-migrated/
+# ─── generated / project data (source-only repo) ─────────────────────────────
+# Merged project folders (data + generated React/GrapeJS apps)
+/Projects/*
+!/Projects/registry.json
+!/Projects/.gitkeep
 
-# Generated React + GrapeJS editor apps
-/projects/
-
-# Local WordPress dumps, zips, and extracted site trees used for Docker / import
-/try-data/
-old_wp_data/
+# Local WordPress dumps under Docker
+/Docker/try-data/
 *.sql
-!export-schema/**
+!Converter/export-schema/**
 
-# Import / export scratch / packaged plugin zips (keep plugin source under wp-plugin/)
+# Import / export scratch / packaged plugin zips
 **/import/
 **/plugin-export*.zip
 **/wp-grape-export*.zip
-!wp-plugin/wp-grape-export/
+!Plugin/
 
 # ─── build / tooling output ─────────────────────────────────────────────────
 /build
@@ -42,7 +37,7 @@ old_wp_data/
 *.tsbuildinfo
 next-env.d.ts
 
-# ─── local Studio auth / session data ───────────────────────────────────────
+# ─── local Admin auth / session data ────────────────────────────────────────
 .studio-data/
 
 # ─── logs & OS / editor noise ───────────────────────────────────────────────
@@ -54,6 +49,6 @@ yarn-error.log*
 .vercel
 .claude/settings.local.json
 
-# ─── local IDE (optional — keep shared Cursor rules) ────────────────────────
+# ─── local IDE ──────────────────────────────────────────────────────────────
 .cursor/*
 !.cursor/rules/

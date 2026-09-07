@@ -1,9 +1,9 @@
 # Fresh WordPress on http://localhost:5001 (separate from Radius-OIS on 8084)
-# No plugin bind-mount — upload plugins via wp-admin if needed.
+# No plugin bind-mount — upload Plugin ZIP via wp-admin if needed.
 $ErrorActionPreference = "Continue"
 Set-Location (Split-Path $PSScriptRoot -Parent)
 
-$composeFile = "docker-compose.fresh.yml"
+$composeFile = "Docker/docker-compose.fresh.yml"
 $url = "http://localhost:5001"
 $adminUser = if ($env:WP_FRESH_ADMIN_USER) { $env:WP_FRESH_ADMIN_USER } else { "admin" }
 $adminPass = if ($env:WP_FRESH_ADMIN_PASSWORD) { $env:WP_FRESH_ADMIN_PASSWORD } else { "admin" }
@@ -15,7 +15,6 @@ function Invoke-DockerCompose {
     [Parameter(Mandatory = $true)]
     [string[]]$Args
   )
-  # Docker writes progress to stderr; with Stop that becomes a terminating error in PowerShell.
   $prev = $ErrorActionPreference
   $ErrorActionPreference = "Continue"
   & docker compose -f $composeFile @Args
@@ -40,50 +39,28 @@ for ($i = 1; $i -le 90; $i++) {
       $ready = $true
       break
     }
-  } catch {
-    if ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -ge 200) {
-      $ready = $true
-      break
-    }
-  }
+  } catch {}
   Start-Sleep -Seconds 2
 }
 
 if (-not $ready) {
-  Write-Host "WordPress container started but HTTP not ready yet."
-  Write-Host "Check: docker compose -f $composeFile logs -f"
+  Write-Host "WordPress did not become ready in time."
   exit 1
 }
 
-Write-Host "Ensuring WordPress is installed..."
-$code = Invoke-DockerCompose -Args @("run", "--rm", "--entrypoint", "wp", "fresh_wpcli", "core", "is-installed")
-if ($code -ne 0) {
-  Write-Host "Running wp core install..."
-  $code = Invoke-DockerCompose -Args @(
-    "run", "--rm", "--entrypoint", "wp", "fresh_wpcli", "core", "install",
-    "--url=$url",
-    "--title=$siteTitle",
-    "--admin_user=$adminUser",
-    "--admin_password=$adminPass",
-    "--admin_email=$adminEmail",
-    "--skip-email"
-  )
-  if ($code -ne 0) {
-    Write-Host "wp core install failed. Open $url and finish the installer in the browser."
-    exit 1
-  }
-} else {
-  Write-Host "WordPress already installed."
+Write-Host "Ensuring WP is installed..."
+docker compose -f $composeFile run --rm --entrypoint wp fresh_wpcli core is-installed 2>$null
+if ($LASTEXITCODE -ne 0) {
+  docker compose -f $composeFile run --rm --entrypoint wp fresh_wpcli core install `
+    --url=$url `
+    --title=$siteTitle `
+    --admin_user=$adminUser `
+    --admin_password=$adminPass `
+    --admin_email=$adminEmail `
+    --skip-email 2>&1 | Out-Host
 }
 
 Write-Host ""
-Write-Host "Done - fresh WordPress is ready."
-Write-Host "  Site:   $url"
-Write-Host "  Admin:  $url/wp-admin"
-Write-Host "  User:   $adminUser"
-Write-Host "  Pass:   $adminPass"
-Write-Host "  Stop:   pnpm wp:fresh:down"
-Write-Host "  Logs:   docker compose -f $composeFile logs -f"
-Write-Host ""
-Write-Host "Upload plugins via wp-admin (no plugin bind-mount on this stack)."
-Write-Host "Radius-OIS on :8084 is untouched."
+Write-Host "Fresh WordPress ready -> $url"
+Write-Host "Admin: $adminUser / $adminPass"
+Write-Host "Upload Plugin/ as a ZIP in wp-admin if needed."

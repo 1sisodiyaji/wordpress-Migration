@@ -4,9 +4,11 @@ Set-Location (Split-Path $PSScriptRoot -Parent)
 
 & "$PSScriptRoot\prepare-radius-ois.ps1"
 
+$compose = "Docker/docker-compose.yml"
+
 Write-Host ""
 Write-Host "Starting Radius-OIS WordPress stack..."
-docker compose up -d --build radius_db radius_phpmyadmin
+docker compose -f $compose up -d --build radius_db radius_phpmyadmin
 
 Write-Host "Waiting for MariaDB..."
 for ($i = 1; $i -le 60; $i++) {
@@ -15,7 +17,7 @@ for ($i = 1; $i -le 60; $i++) {
   Start-Sleep -Seconds 2
 }
 
-$sqlPath = Join-Path "try-data" "radius-ois\Radius-ois.sql"
+$sqlPath = Join-Path "Docker\try-data" "radius-ois\Radius-ois.sql"
 $tableCount = docker exec migration-radius_db-1 mysql -uroot -N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='radius_ois';" 2>$null
 if ([string]::IsNullOrWhiteSpace($tableCount) -or [int]$tableCount -lt 10) {
   Write-Host "Importing Radius-ois.sql (74MB, may take a few minutes)..."
@@ -25,7 +27,7 @@ if ([string]::IsNullOrWhiteSpace($tableCount) -or [int]$tableCount -lt 10) {
   Write-Host "Database already imported ($tableCount tables)."
 }
 
-docker compose up -d radius_wordpress
+docker compose -f $compose up -d radius_wordpress
 
 $url = "http://localhost:8084/"
 Write-Host ""
@@ -47,7 +49,7 @@ if (-not $ready) {
   Write-Host "Containers started; site may still be importing SQL."
 }
 
-$container = docker compose ps -q radius_wordpress 2>$null
+$container = docker compose -f $compose ps -q radius_wordpress 2>$null
 if ($container) {
   Write-Host ""
   Write-Host "Activating export plugins..."
@@ -62,8 +64,5 @@ if ($container) {
 }
 
 Write-Host ""
-Write-Host "Done."
-Write-Host "  Site:     http://localhost:8084"
-Write-Host "  Admin:    http://localhost:8084/wp-admin"
-Write-Host "  phpMyAdmin: http://localhost:8085"
-Write-Host "  Logs:     docker compose logs -f radius_db radius_wordpress"
+Write-Host "Done. WordPress: $url"
+Write-Host "Plugin source: Plugin/ (bind-mounted)"

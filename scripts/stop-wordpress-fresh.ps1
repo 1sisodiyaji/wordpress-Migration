@@ -1,9 +1,8 @@
-# Stop fresh WordPress (port 5001). Does not touch Radius-OIS.
-$ErrorActionPreference = "Stop"
+# Stop fresh WordPress stack (port 5001)
+$ErrorActionPreference = "Continue"
 Set-Location (Split-Path $PSScriptRoot -Parent)
 
-Write-Host "Stopping fresh WordPress stack..."
-docker compose -f docker-compose.fresh.yml down
+docker compose -f Docker/docker-compose.fresh.yml down
 
-Write-Host "Stopped. Volumes kept (data survives next up)."
-Write-Host "To wipe data too: docker compose -f docker-compose.fresh.yml down -v"
+Write-Host "Fresh WordPress stopped."
+Write-Host "To wipe data too: docker compose -f Docker/docker-compose.fresh.yml down -v"

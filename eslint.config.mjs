@@ -1,5 +1,5 @@
 import { defineConfig, globalIgnores } from "eslint/config";
 
 export default defineConfig([
-  globalIgnores(["node_modules/**", "projects/**", "sites/**", "public/**"]),
+  globalIgnores(["node_modules/**", "Projects/**", "Docker/**"]),
 ]);

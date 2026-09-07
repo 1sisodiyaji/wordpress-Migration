@@ -1,20 +1,13 @@
 #!/usr/bin/env npx tsx
 /**
- * Inner-loop: plugin PHP on disk → WordPress export → Studio site → GrapeJS project.
+ * Inner-loop: Plugin PHP on disk → WordPress export → Projects/{slug} → generate.
  *
- * Does NOT require:
- *   - zipping the plugin
- *   - uploading it in wp-admin
- *   - downloading an export ZIP in the Studio UI
- *
- * Usage:
  *   pnpm plugin:sync
  *   pnpm plugin:sync -- --site radius-ois --skip-generate
- *   pnpm plugin:sync -- --no-media
  */
 import "dotenv/config";
-import { syncLocalPluginExport } from "../lib/wp-import/sync-local-export";
-import { createStudioMeta, patchStudioMeta, readStudioMeta } from "../studio/server/state";
+import { syncLocalPluginExport } from "../Converter/shared/wp-import/sync-local-export";
+import { createStudioMeta, patchStudioMeta, readStudioMeta } from "../Admin/server/state";
 
 const argv = process.argv.slice(2);
 const skipGenerate = argv.includes("--skip-generate");
@@ -29,7 +22,7 @@ WP Grape Export — local sync
   Media     : ${copyMedia ? "copy" : "map only"}
   Generate  : ${skipGenerate ? "skip" : "yes"}
 
-Plugin files are bind-mounted. Edit wp-plugin/wp-grape-export and re-run this.
+Plugin files are bind-mounted from Plugin/. Edit and re-run this.
 `);
 
 try {
@@ -58,14 +51,11 @@ try {
 ✅ Sync complete
   Method    : ${result.method}
   Imported  : ${result.source}
-  Site      : sites/${result.siteSlug}/
-  Generated : ${result.generated ? `projects/${result.siteSlug}/` : "(skipped)"}
-  Studio    : http://localhost:5173/project/${result.siteSlug}
+  Project   : Projects/${result.siteSlug}/
+  Generated : ${result.generated ? `Projects/${result.siteSlug}/` : "(skipped)"}
+  Admin     : http://localhost:5173/project/${result.siteSlug}
+  Converter : http://localhost:5174/
   WordPress : http://localhost:8084/
-
-  Editor UI : stop any open editor tab, then in Studio click "Open editor"
-              (or run: cd projects/${result.siteSlug} && pnpm dev)
-              Hard refresh the editor tab: Ctrl+Shift+R
 `);
 } catch (err) {
   console.error(`\n❌ ${err instanceof Error ? err.message : String(err)}\n`);
