@@ -6,7 +6,8 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import type { Connect, Plugin } from "vite";
+import type { IncomingMessage, ServerResponse } from "node:http";
+import type { Plugin } from "vite";
 
 export type GrapeSavePayload = {
   pageKey: string;
@@ -42,7 +43,7 @@ function writeJson(file: string, data: unknown): void {
   fs.writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`, "utf8");
 }
 
-function readBody(req: Connect.IncomingMessage): Promise<string> {
+function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     req.on("data", (c: Buffer) => chunks.push(c));
@@ -51,7 +52,7 @@ function readBody(req: Connect.IncomingMessage): Promise<string> {
   });
 }
 
-function sendJson(res: Connect.ServerResponse, status: number, body: unknown): void {
+function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.statusCode = status;
   res.setHeader("Content-Type", "application/json");
   res.setHeader("Cache-Control", "no-store");

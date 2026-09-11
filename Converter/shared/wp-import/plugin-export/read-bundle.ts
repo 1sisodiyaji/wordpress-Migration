@@ -1,7 +1,7 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import AdmZip from "adm-zip";
+import { getTmpDir } from "../../paths";
 import type {
   PluginExportAssetManifest,
   PluginExportAudit,
@@ -73,7 +73,7 @@ export function readPluginExportBundle(source: string): PluginExportBundle {
   if (stat.isDirectory()) {
     root = locateBundleRoot(source);
   } else if (/\.zip$/i.test(source)) {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "wpge-bundle-"));
+    const tmp = fs.mkdtempSync(path.join(getTmpDir(), "wpge-bundle-"));
     extractZipBuffer(fs.readFileSync(source), tmp);
     root = locateBundleRoot(tmp);
     isTemp = true;

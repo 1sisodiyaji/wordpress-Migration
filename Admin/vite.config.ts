@@ -9,9 +9,11 @@ export default defineConfig({
   root,
   plugins: [react()],
   server: {
-    port: 5173,
+    host: true,
+    port: 4000,
     strictPort: true,
-    allowedHosts: ["monitor.craftfosslabs.com"],
+    allowedHosts: true,
+    watch: { usePolling: true },
   },
   build: {
     outDir: path.join(root, "dist"),

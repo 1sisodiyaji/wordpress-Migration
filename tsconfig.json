@@ -23,8 +23,7 @@
     "Converter/**/*.tsx",
     "Admin/**/*.ts",
     "Admin/**/*.tsx",
-    "Admin/**/*.jsx",
-    "Scripts/**/*.ts"
+    "Admin/**/*.jsx"
   ],
-  "exclude": ["node_modules", "Projects/**", "Docker/**"]
+  "exclude": ["node_modules", "output/**", "tmp/**", "Admin/dist/**"]
 }

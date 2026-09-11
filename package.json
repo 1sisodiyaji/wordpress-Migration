@@ -1,5 +1,5 @@
 {
-  "name": "wp-scrape-to-grapejs",
+  "name": "pen-migration",
   "version": "0.4.0",
   "private": true,
   "type": "module",
@@ -8,13 +8,11 @@
     "admin": "tsx Admin/server/index.ts",
     "converter": "tsx Converter/server/index.ts",
     "generate": "tsx Converter/index.ts",
-    "wp:up": "powershell -ExecutionPolicy Bypass -File Scripts/start-wordpress.ps1",
-    "wp:down": "docker compose -f Docker/docker-compose.yml down",
-    "wp:fresh:up": "powershell -ExecutionPolicy Bypass -File Scripts/start-wordpress-fresh.ps1",
-    "wp:fresh:down": "powershell -ExecutionPolicy Bypass -File Scripts/stop-wordpress-fresh.ps1",
-    "plugin:sync": "tsx Scripts/sync-plugin-export.ts",
+    "build": "vite build --config Admin/vite.config.ts",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint Converter Admin Scripts"
+    "lint": "eslint Converter Admin",
+    "docker:dev": "docker compose -f compose.dev.yml up --build",
+    "docker:prod": "docker compose -f compose.pro.yml up --build"
   },
   "dependencies": {
     "adm-zip": "^0.5.16",

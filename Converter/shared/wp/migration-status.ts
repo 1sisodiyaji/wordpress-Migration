@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { SITES_ROOT } from "./sites";
+import { getProjectsRoot } from "./sites";
 
 export interface MigrationProgress {
   done: number;
@@ -15,7 +15,7 @@ export interface MigrationStatus {
 }
 
 function statusPath(slug: string): string {
-  return path.join(SITES_ROOT, slug, "status.json");
+  return path.join(getProjectsRoot(), slug, "status.json");
 }
 
 export function setMigrationPhase(slug: string, phase: string): void {
@@ -27,7 +27,7 @@ export function setMigrationProgress(
   phase: string,
   progress?: MigrationProgress,
 ): void {
-  const dir = path.join(SITES_ROOT, slug);
+  const dir = path.join(getProjectsRoot(), slug);
   fs.mkdirSync(dir, { recursive: true });
   const status: MigrationStatus = {
     slug,

@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { SITES_ROOT } from "../../Converter/shared/wp/sites";
+import { getProjectsRoot } from "../../Converter/shared/wp/sites";
 
 export type JobStatus = "pending" | "running" | "done" | "failed";
 export type EditorStatus = "stopped" | "starting" | "running";
@@ -28,12 +28,12 @@ export interface StudioMeta {
 }
 
 function metaPath(slug: string): string {
-  return path.join(SITES_ROOT, slug, "studio.json");
+  return path.join(getProjectsRoot(), slug, "studio.json");
 }
 
 /** True when the site folder exists and is readable (not a broken junction). */
 export function isSiteDirHealthy(slug: string): boolean {
-  const dir = path.join(SITES_ROOT, slug);
+  const dir = path.join(getProjectsRoot(), slug);
   if (!fs.existsSync(dir)) return false;
   try {
     fs.readdirSync(dir);
@@ -44,12 +44,12 @@ export function isSiteDirHealthy(slug: string): boolean {
 }
 
 /**
- * Ensure `Projects/<slug>` is a writable real directory.
+ * Ensure `output/<slug>` is a writable real directory.
  * Removes broken Windows junctions (ENOENT on mkdir/readdir) before creating.
  */
 export function ensureSiteDir(slug: string): string {
-  const dir = path.join(SITES_ROOT, slug);
-  fs.mkdirSync(SITES_ROOT, { recursive: true });
+  const dir = path.join(getProjectsRoot(), slug);
+  fs.mkdirSync(getProjectsRoot(), { recursive: true });
 
   if (fs.existsSync(dir) && !isSiteDirHealthy(slug)) {
     fs.rmSync(dir, { recursive: true, force: true });

@@ -1,12 +1,9 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { generateReactGrapeProject, getProjectDir } from "../../Converter/lib/scaffold";
+import { getProjectDir } from "../../Converter/lib/scaffold";
 import { assertValidAppTsx } from "../../Converter/lib/app-shell-template";
 import { killProcessTree } from "../../Converter/shared/kill-dev-port";
-import { installProjectDeps } from "../../Converter/shared/install-project-deps";
-import { importLocalSource } from "../../Converter/shared/wp-import/import-local";
-import { importPluginExport } from "../../Converter/shared/wp-import/import-plugin-export";
 import {
   explainWpAuthFailure,
   isLocalWpUrl,
@@ -17,7 +14,7 @@ import {
   type WpWhoAmI,
 } from "../../Converter/shared/wp-import/plugin-rest";
 import { patchStudioMeta, getImportDir, readStudioMeta, type StudioMeta } from "./state";
-import { syncLocalPluginExport, LOCAL_WP_URL } from "../../Converter/shared/wp-import/sync-local-export";
+import { LOCAL_WP_URL } from "../../Converter/shared/wp-import/sync-local-export";
 import {
   pipelineBanner,
   pipelineDetail,
@@ -26,6 +23,12 @@ import {
   pipelineStartMigrationLog,
   pipelineStep,
 } from "../../Converter/shared/pipeline-log";
+import {
+  converterGenerate,
+  converterImportLocal,
+  converterImportPlugin,
+  converterSyncLocal,
+} from "./converter-client";
 
 const editorProcesses = new Map<string, ChildProcess>();
 const usedPorts = new Set<number>();
@@ -67,9 +70,9 @@ export async function runImportFromFiles(slug: string, name: string): Promise<vo
   patchStudioMeta(slug, { scrapeStatus: "running", error: undefined });
 
   try {
-    await importLocalSource({ importPath: importDir, siteSlug: slug, name });
+    await converterImportLocal({ slug, name, importPath: importDir });
     patchStudioMeta(slug, { scrapeStatus: "done" });
-    pipelineOk(`Import complete → Projects/${slug}/data`, slug);
+    pipelineOk(`Import complete → output/${slug}/data`, slug);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     patchStudioMeta(slug, { scrapeStatus: "failed", error: message });
@@ -89,14 +92,14 @@ export async function runImportFromPluginExport(
   patchStudioMeta(slug, { scrapeStatus: "running", error: undefined, sourceType: "plugin" });
 
   try {
-    const result = await importPluginExport({ source, siteSlug: slug, name });
+    const result = await converterImportPlugin({ slug, name, source });
     patchStudioMeta(slug, { scrapeStatus: "done", hasPluginExport: true });
-    pipelineOk(`Import complete → Projects/${slug}/data`, slug);
+    pipelineOk(`Import complete → output/${slug}/data`, slug);
     pipelineDetail("pages", String(result.pageCount), slug);
     pipelineDetail("templates", String(result.templateCount), slug);
     pipelineDetail("menus", String(result.menuCount), slug);
     pipelineDetail("media", String(result.mediaCount), slug);
-    if (result.assetsCopied) pipelineDetail("assets", `Projects/${slug}/public`, slug);
+    if (result.assetsCopied) pipelineDetail("assets", `output/${slug}/public`, slug);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     patchStudioMeta(slug, { scrapeStatus: "failed", error: message });
@@ -158,7 +161,7 @@ export async function runPullFromPluginRest(
     const zipPath = path.join(importDir, "plugin-export.zip");
     fs.writeFileSync(zipPath, zipBuffer);
 
-    await importPluginExport({ source: zipPath, siteSlug: slug, name });
+    await converterImportPlugin({ slug, name, source: zipPath });
     patchStudioMeta(slug, { scrapeStatus: "done", hasPluginExport: true, url: base });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -196,8 +199,8 @@ export async function runSyncFromLocalWp(
       patchStudioMeta(slug, { generateStatus: "running" });
     }
 
-    const result = await syncLocalPluginExport({
-      siteSlug: slug,
+    const result = await converterSyncLocal({
+      slug,
       name,
       copyMedia: opts.copyMedia !== false,
       skipGenerate,
@@ -227,23 +230,20 @@ export async function runGenerate(slug: string): Promise<StudioMeta> {
   stopEditor(slug);
   const port = allocatePort();
   pipelineBanner(`CONVERT — ${slug}`, slug);
-  pipelineStep("convert", `Codegen in-process (editor port reserved: ${port})`, slug);
+  pipelineStep("convert", `Codegen via Converter (editor port reserved: ${port})`, slug);
   patchStudioMeta(slug, { generateStatus: "running", error: undefined, editorPort: port });
 
   try {
-    const projectDir = await generateReactGrapeProject({ siteSlug: slug, port });
+    const generated = await converterGenerate({ slug, port });
+    const projectDir = generated.projectDir || getProjectDir(slug);
     const appPath = path.join(projectDir, "src", "App.tsx");
     if (!fs.existsSync(appPath)) {
       throw new Error(`Generate did not create ${appPath}`);
     }
     assertValidAppTsx(fs.readFileSync(appPath, "utf8"));
 
-    pipelineStep("install", `Installing deps in ${projectDir}`, slug);
-    await installProjectDeps(projectDir);
-    pipelineOk(`Dependencies ready`, slug);
-
     patchStudioMeta(slug, { generateStatus: "done", editorPort: port });
-    pipelineOk(`Convert finished. Start editor with: pnpm dev (PORT=${port}) in Projects/${slug}`, slug);
+    pipelineOk(`Convert finished. Start editor with: pnpm dev (PORT=${port}) in output/${slug}`, slug);
     return readStudioMeta(slug)!;
   } catch (err) {
     releasePort(port);

@@ -1,5 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
+import { getProjectsRoot } from "../paths";
+
+export { getProjectsRoot, getTmpDir } from "../paths";
 
 export type SiteStage = "landing" | "converted" | "full";
 
@@ -16,8 +19,17 @@ export interface SiteEntry {
   error?: string;
 }
 
-export const SITES_ROOT = path.join(process.cwd(), "Projects");
-export const REGISTRY_PATH = path.join(SITES_ROOT, "registry.json");
+export function getSitesRoot(): string {
+  return getProjectsRoot();
+}
+
+export function getRegistryPath(): string {
+  return path.join(getProjectsRoot(), "registry.json");
+}
+
+/** Prefer getProjectsRoot(); kept for existing imports. */
+export const SITES_ROOT = getProjectsRoot();
+export const REGISTRY_PATH = getRegistryPath();
 
 export function urlToSlug(url: string): string {
   try {
@@ -51,11 +63,11 @@ export function normalizeWordPressUrl(input: string): string {
 }
 
 export function getSiteDataDir(slug: string): string {
-  return path.join(SITES_ROOT, slug, "data");
+  return path.join(getProjectsRoot(), slug, "data");
 }
 
 export function getSitePublicDir(slug: string): string {
-  return path.join(SITES_ROOT, slug, "public");
+  return path.join(getProjectsRoot(), slug, "public");
 }
 
 export function getSitePublicUrlPrefix(slug: string): string {
@@ -63,9 +75,10 @@ export function getSitePublicUrlPrefix(slug: string): string {
 }
 
 export function readRegistry(): SiteEntry[] {
-  if (!fs.existsSync(REGISTRY_PATH)) return [];
+  const file = getRegistryPath();
+  if (!fs.existsSync(file)) return [];
   try {
-    const raw = JSON.parse(fs.readFileSync(REGISTRY_PATH, "utf8")) as {
+    const raw = JSON.parse(fs.readFileSync(file, "utf8")) as {
       sites?: SiteEntry[];
     };
     return raw.sites ?? [];
@@ -75,8 +88,8 @@ export function readRegistry(): SiteEntry[] {
 }
 
 export function writeRegistry(sites: SiteEntry[]): void {
-  fs.mkdirSync(SITES_ROOT, { recursive: true });
-  fs.writeFileSync(REGISTRY_PATH, JSON.stringify({ sites }, null, 2), "utf8");
+  fs.mkdirSync(getProjectsRoot(), { recursive: true });
+  fs.writeFileSync(getRegistryPath(), JSON.stringify({ sites }, null, 2), "utf8");
 }
 
 export function upsertSite(entry: SiteEntry): void {
@@ -102,10 +115,10 @@ function removeDir(dir: string): void {
 /** Removes registry entry, site data, logs, and public assets. */
 export function deleteSite(slug: string): boolean {
   const hadRegistry = Boolean(getSite(slug));
-  const hadSiteDir = fs.existsSync(path.join(SITES_ROOT, slug));
+  const hadSiteDir = fs.existsSync(path.join(getProjectsRoot(), slug));
   const hadPublic = fs.existsSync(getSitePublicDir(slug));
 
-  removeDir(path.join(SITES_ROOT, slug));
+  removeDir(path.join(getProjectsRoot(), slug));
   removeDir(getSitePublicDir(slug));
 
   if (hadRegistry) {
@@ -117,5 +130,5 @@ export function deleteSite(slug: string): boolean {
 
 /** Whether a site folder or registry entry exists for slug. */
 export function siteExists(slug: string): boolean {
-  return Boolean(getSite(slug)) || fs.existsSync(path.join(SITES_ROOT, slug));
+  return Boolean(getSite(slug)) || fs.existsSync(path.join(getProjectsRoot(), slug));
 }

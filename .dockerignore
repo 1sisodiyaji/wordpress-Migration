@@ -1,0 +1,11 @@
+node_modules
+output
+tmp
+.git
+.gitignore
+.env
+Admin/dist
+.studio-data
+*.md
+npm-debug.log*
+.pnpm-debug.log*

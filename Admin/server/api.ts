@@ -8,6 +8,7 @@ import {
   deleteSite,
   getSite,
   readRegistry,
+  getProjectsRoot,
 } from "../../Converter/shared/wp/sites";
 import { readMigrationLog } from "../../Converter/shared/wp/migration-log";
 import { readMigrationStatus } from "../../Converter/shared/wp/migration-status";
@@ -370,7 +371,7 @@ export function registerApi(app: Express): void {
 }
 
 function listAllStudioMeta() {
-  const sitesRoot = path.join(process.cwd(), "sites");
+  const sitesRoot = getProjectsRoot();
   if (!fs.existsSync(sitesRoot)) return [];
   const out = [];
   for (const entry of fs.readdirSync(sitesRoot, { withFileTypes: true })) {

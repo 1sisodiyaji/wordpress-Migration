@@ -37,10 +37,9 @@ import {
   pipelineOk,
   pipelineStep,
 } from "../shared/pipeline-log";
+import { getProjectsRoot } from "../shared/paths";
 
 const GRAPE_BLOCKS_CSS = "/assets/inline/styles/grape-blocks.css";
-
-const PROJECTS_ROOT = path.join(process.cwd(), "Projects");
 
 /** Detect empty HTML documents from the WP plugin (DOCTYPE + empty body). */
 function isExportHtmlBlank(html: string | undefined | null): boolean {
@@ -56,7 +55,7 @@ function isExportHtmlBlank(html: string | undefined | null): boolean {
 }
 
 export function getProjectDir(slug: string): string {
-  return path.join(PROJECTS_ROOT, slug);
+  return path.join(getProjectsRoot(), slug);
 }
 
 /**

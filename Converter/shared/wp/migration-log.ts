@@ -1,13 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
-import { SITES_ROOT } from "./sites";
+import { getProjectsRoot } from "./sites";
 
 export function getMigrationLogPath(slug: string): string {
-  return path.join(SITES_ROOT, slug, "migration.log");
+  return path.join(getProjectsRoot(), slug, "migration.log");
 }
 
 export function ensureSiteDir(slug: string): void {
-  fs.mkdirSync(path.join(SITES_ROOT, slug), { recursive: true });
+  fs.mkdirSync(path.join(getProjectsRoot(), slug), { recursive: true });
 }
 
 export function initMigrationLog(slug: string, url: string, retry = false): void {

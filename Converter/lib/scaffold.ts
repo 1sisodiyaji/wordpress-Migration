@@ -4,8 +4,7 @@ import { collectCanvasStyles, patchElementorCssUrls, prepareGrapeHtml } from "./
 import { cleanGeneratedProject } from "./fs-clean";
 import { pageKeyToComponent } from "./names";
 import type { ScrapedSite } from "./read-scraped";
-
-const PROJECTS_ROOT = path.join(process.cwd(), "Projects");
+import { getProjectsRoot } from "../shared/paths";
 
 export interface GenerateOptions {
   siteSlug: string;
@@ -13,7 +12,7 @@ export interface GenerateOptions {
 }
 
 export function getProjectDir(slug: string): string {
-  return path.join(PROJECTS_ROOT, slug);
+  return path.join(getProjectsRoot(), slug);
 }
 
 export async function generateReactGrapeProject(opts: GenerateOptions): Promise<string> {

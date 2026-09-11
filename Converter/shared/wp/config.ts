@@ -1,5 +1,5 @@
 import path from "node:path";
-import { getSiteDataDir, getSitePublicDir, getSitePublicUrlPrefix } from "./sites";
+import { getProjectsRoot, getSiteDataDir, getSitePublicDir, getSitePublicUrlPrefix } from "./sites";
 
 /** Current migrate target — always read at call time (batch runs change WORDPRESS_URL). */
 export function getWpUrl(): string {
@@ -25,13 +25,13 @@ export function getActiveSiteSlug(): string | undefined {
 export function getMigratedDataDir(siteSlug?: string): string {
   const slug = siteSlug ?? getActiveSiteSlug();
   if (slug) return getSiteDataDir(slug);
-  return path.join(process.cwd(), "Projects", "_unset", "data");
+  return path.join(getProjectsRoot(), "_unset", "data");
 }
 
 export function getMigratedPublicDir(siteSlug?: string): string {
   const slug = siteSlug ?? getActiveSiteSlug();
   if (slug) return getSitePublicDir(slug);
-  return path.join(process.cwd(), "Projects", "_unset", "public");
+  return path.join(getProjectsRoot(), "_unset", "public");
 }
 
 export function getMigratedPublicUrlPrefix(siteSlug?: string): string {

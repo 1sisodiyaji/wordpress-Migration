@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { importPluginExport } from "./import-plugin-export";
 import { stopProjectDevServer } from "../kill-dev-port";
+import { getProjectsRoot } from "../paths";
 
 const ROOT = process.cwd();
 
@@ -192,7 +193,7 @@ async function exportViaDockerCli(copyMedia: boolean): Promise<{ stats?: unknown
 }
 
 async function generateSite(slug: string): Promise<void> {
-  const projectDir = path.join(ROOT, "Projects", slug);
+  const projectDir = path.join(getProjectsRoot(), slug);
   const hadModules = fs.existsSync(path.join(projectDir, "node_modules"));
 
   const stoppedPort = await stopProjectDevServer(projectDir);

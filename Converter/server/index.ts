@@ -4,18 +4,25 @@
  */
 import "dotenv/config";
 import express from "express";
-import { generateReactGrapeProject } from "../lib/scaffold";
+import { generateReactGrapeProject, getProjectDir } from "../lib/scaffold";
 import { importPluginExport } from "../shared/wp-import/import-plugin-export";
 import { importLocalSource } from "../shared/wp-import/import-local";
 import { syncLocalPluginExport } from "../shared/wp-import/sync-local-export";
-import { getProjectDir } from "../lib/scaffold";
+import { installProjectDeps } from "../shared/install-project-deps";
+import { getProjectsRoot, getTmpDir } from "../shared/paths";
 
 const PORT = Number(process.env.CONVERTER_PORT ?? "5174");
 const app = express();
 app.use(express.json({ limit: "32mb" }));
 
 app.get("/health", (_req, res) => {
-  res.json({ ok: true, service: "converter", port: PORT });
+  res.json({
+    ok: true,
+    service: "converter",
+    port: PORT,
+    projectsRoot: getProjectsRoot(),
+    tmpDir: getTmpDir(),
+  });
 });
 
 app.post("/api/generate", async (req, res) => {
@@ -28,6 +35,7 @@ app.post("/api/generate", async (req, res) => {
     const port = Number(req.body?.port) || undefined;
     console.log(`[converter] generate slug=${slug} port=${port ?? "default"}`);
     const projectDir = await generateReactGrapeProject({ siteSlug: slug, port });
+    await installProjectDeps(projectDir);
     res.json({ ok: true, projectDir, slug });
   } catch (err) {
     console.error("[converter] generate failed", err);
@@ -44,8 +52,8 @@ app.post("/api/import/plugin", async (req, res) => {
       res.status(400).json({ error: "slug and source required" });
       return;
     }
-    await importPluginExport({ source, siteSlug: slug, name });
-    res.json({ ok: true, slug, projectDir: getProjectDir(slug) });
+    const result = await importPluginExport({ source, siteSlug: slug, name });
+    res.json({ ok: true, ...result, projectDir: getProjectDir(slug) });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
@@ -61,7 +69,7 @@ app.post("/api/import/local", async (req, res) => {
       return;
     }
     await importLocalSource({ importPath, siteSlug: slug, name });
-    res.json({ ok: true, slug });
+    res.json({ ok: true, slug, projectDir: getProjectDir(slug) });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
@@ -87,6 +95,8 @@ app.post("/api/sync-local", async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Converter listening on http://localhost:${PORT}`);
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`Converter listening on http://0.0.0.0:${PORT}`);
+  console.log(`  PROJECTS_ROOT=${getProjectsRoot()}`);
+  console.log(`  TMP_DIR=${getTmpDir()}`);
 });

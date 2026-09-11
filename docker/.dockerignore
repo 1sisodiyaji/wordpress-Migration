@@ -1,0 +1,6 @@
+node_modules
+output
+tmp
+.git
+Admin/dist
+.studio-data
