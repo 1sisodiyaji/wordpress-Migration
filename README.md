@@ -2,8 +2,8 @@
 
 Images (built and pushed from `main`):
 
-- `1sisodiyaji/pen-wordpress-migrator-admin:latest`
-- `1sisodiyaji/pen-wordpress-migrator-converter:latest`
+- `golusingh07/pen-wordpress-migrator-admin:latest`
+- `golusingh07/pen-wordpress-migrator-converter:latest`
 
 ```bash
 cp .env.example .env
