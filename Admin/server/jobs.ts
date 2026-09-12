@@ -325,16 +325,17 @@ export async function startEditor(slug: string): Promise<{ port: number; url: st
 
   const port = await allocatePort(meta.editorPort);
   pipelineBanner(`EDITOR — ${slug}`, slug);
-  pipelineStep("editor", `Executing: pnpm dev -- --port ${port} (cwd=${projectDir})`, slug);
+  pipelineStep("editor", `Executing: pnpm exec vite --host 0.0.0.0 --port ${port} (cwd=${projectDir})`, slug);
   pipelineDetail("PORT", String(port), slug);
   pipelineDetail("url", editorUrlFor(port), slug);
   patchStudioMeta(slug, { editorStatus: "starting", editorPort: port });
 
   return new Promise((resolve, reject) => {
-    // Bind 0.0.0.0 so the editor is reachable from outside the Admin container.
+    // Run vite directly — project "dev" scripts often hardcode `--port N`, which
+    // causes `pnpm dev -- --host ...` to insert a bare `--` and drop --host.
     const child = spawn(
       "pnpm",
-      ["dev", "--", "--host", "0.0.0.0", "--port", String(port), "--strictPort"],
+      ["exec", "vite", "--host", "0.0.0.0", "--port", String(port), "--strictPort"],
       {
         cwd: projectDir,
         shell: true,

@@ -811,9 +811,9 @@ function writeRootFiles(projectDir: string, site: PluginSite, port: number): voi
         private: true,
         type: "module",
         scripts: {
-          dev: `vite --port ${port}`,
+          dev: "vite",
           build: "tsc -b && vite build",
-          preview: `vite preview --port ${port}`,
+          preview: `vite preview --host 0.0.0.0 --port ${port}`,
         },
         dependencies: {
           grapesjs: "^0.22.8",
