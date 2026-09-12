@@ -46,12 +46,14 @@ services:
       target: dev
     ports:
       - "5173:5173"
+      - "8000-8080:8000-8080"
     environment:
       NODE_ENV: development
       STUDIO_PORT: "5173"
       CONVERTER_URL: http://converter:5174
       PROJECTS_ROOT: /app/output
       TMP_DIR: /app/tmp
+      EDITOR_PUBLIC_ORIGIN: ${EDITOR_PUBLIC_ORIGIN:-http://localhost}
       WP_URL: ${WP_URL:-http://host.docker.internal:8084}
       WORDPRESS_URL: ${WORDPRESS_URL:-http://host.docker.internal:8084}
       CHOKIDAR_USEPOLLING: "true"

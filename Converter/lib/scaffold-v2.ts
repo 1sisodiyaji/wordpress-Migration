@@ -857,9 +857,10 @@ export default defineConfig({
   },
   optimizeDeps: { include: ["react", "react-dom", "react/jsx-runtime", "react/jsx-dev-runtime"] },
   server: {
+    host: true,
     port: Number(process.env.PORT) || ${port},
     strictPort: true,
-    allowedHosts: ["monitor.craftfosslabs.com"],
+    allowedHosts: true,
     // Do not HMR-reload the editor when we write site.json / page HTML on save.
     watch: {
       ignored: [

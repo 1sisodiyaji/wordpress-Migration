@@ -88,7 +88,9 @@ async function main() {
     console.log(`\n────────────────────────────────────────────────────────`);
     console.log(`[${new Date().toISOString().replace("T", " ").slice(0, 19)}] 🎨  Admin running at http://0.0.0.0:${PORT} (${isProd ? "prod" : "dev"})`);
     console.log(`   Converter: ${process.env.CONVERTER_URL ?? "http://localhost:5174"}`);
-    console.log(`   Project editors use ports ${8000}–${8080} (host-side, not Docker)`);
+    console.log(
+      `   Project editors: ports ${8000}–${8080} (bind 0.0.0.0; public origin ${process.env.EDITOR_PUBLIC_ORIGIN ?? "http://localhost"})`,
+    );
     console.log(`────────────────────────────────────────────────────────\n`);
   });
 }

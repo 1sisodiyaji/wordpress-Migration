@@ -38,8 +38,17 @@ const usedPorts = new Set<number>();
 const EDITOR_PORT_START = 8000;
 const EDITOR_PORT_END = 8080;
 
-function editorUrlFor(port: number): string {
-  return `http://localhost:${port}`;
+/** Public URL browsers use to open a project editor (outside Docker). */
+export function editorUrlFor(port: number): string {
+  let base = (process.env.EDITOR_PUBLIC_ORIGIN ?? "http://localhost").trim().replace(/\/$/, "");
+  if (!/^https?:\/\//i.test(base)) base = `http://${base}`;
+  try {
+    const u = new URL(base);
+    u.port = String(port);
+    return u.toString().replace(/\/$/, "");
+  } catch {
+    return `http://localhost:${port}`;
+  }
 }
 
 function parseViteLocalPort(text: string): number | null {
@@ -322,12 +331,17 @@ export async function startEditor(slug: string): Promise<{ port: number; url: st
   patchStudioMeta(slug, { editorStatus: "starting", editorPort: port });
 
   return new Promise((resolve, reject) => {
-    const child = spawn("pnpm", ["dev", "--", "--port", String(port), "--strictPort"], {
-      cwd: projectDir,
-      shell: true,
-      env: { ...process.env, PORT: String(port) },
-      detached: false,
-    });
+    // Bind 0.0.0.0 so the editor is reachable from outside the Admin container.
+    const child = spawn(
+      "pnpm",
+      ["dev", "--", "--host", "0.0.0.0", "--port", String(port), "--strictPort"],
+      {
+        cwd: projectDir,
+        shell: true,
+        env: { ...process.env, PORT: String(port), HOST: "0.0.0.0" },
+        detached: false,
+      },
+    );
 
     editorProcesses.set(slug, child);
     let resolved = false;

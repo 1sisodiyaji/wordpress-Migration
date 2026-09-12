@@ -21,6 +21,7 @@ import {
   runSyncFromLocalWp,
   startEditor,
   stopEditor,
+  editorUrlFor,
 } from "./jobs";
 import { getImportDir, createStudioMeta, patchStudioMeta, readStudioMeta, isSiteDirHealthy } from "./state";
 import { getWpImportStatus } from "../../Converter/shared/wp-import/store-parts";
@@ -105,7 +106,7 @@ function projectPayload(slug: string) {
     progress: status?.progress ?? null,
     scrapeRunning: isScrapeRunning(slug),
     editorRunning: isEditorRunning(slug),
-    editorUrl: meta?.editorPort ? `http://localhost:${meta.editorPort}` : null,
+    editorUrl: meta?.editorPort ? editorUrlFor(meta.editorPort) : null,
     audit: readProjectAudit(slug),
   };
 }

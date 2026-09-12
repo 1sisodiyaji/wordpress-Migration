@@ -158,9 +158,10 @@ export default defineConfig({
     include: ["react", "react-dom", "react/jsx-runtime", "react/jsx-dev-runtime"],
   },
   server: {
+    host: true,
     port: Number(process.env.PORT) || ${port},
     strictPort: true,
-    allowedHosts: ["monitor.craftfosslabs.com"],
+    allowedHosts: true,
     watch: {
       ignored: ["**/public/assets/**"],
     },

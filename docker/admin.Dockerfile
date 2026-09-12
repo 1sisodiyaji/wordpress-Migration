@@ -34,5 +34,6 @@ COPY --from=build /app/tsconfig.json ./
 ENV NODE_ENV=production
 ENV PROJECTS_ROOT=/app/output
 ENV TMP_DIR=/app/tmp
-EXPOSE 4000
+EXPOSE 5173
+EXPOSE 8000-8080
 CMD ["pnpm", "exec", "tsx", "Admin/server/index.ts"]
