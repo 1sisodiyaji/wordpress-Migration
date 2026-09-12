@@ -152,6 +152,18 @@ export default function App() {
     setError(null);
     const { url } = await startEditor(active.slug);
     window.open(url, "_blank", "noopener,noreferrer");
+    setActive((prev) =>
+      prev
+        ? {
+            ...prev,
+            editorRunning: true,
+            editorUrl: url,
+            meta: prev.meta
+              ? { ...prev.meta, editorStatus: "running", editorPort: Number(new URL(url).port) }
+              : prev.meta,
+          }
+        : prev,
+    );
     await refresh();
   }
 
@@ -176,16 +188,22 @@ export default function App() {
   }
 
   const dashTitle =
-    route.kind === "project" ? active?.meta?.name ?? active?.slug ?? "Project" : "Projects";
+    route.kind === "project" ? active?.meta?.name ?? active?.slug ?? "Project" : "Hey, ready to migrate? 👋";
   const dashSubtitle =
     route.kind === "project"
-      ? "Upload ZIP or sync URL → convert → open editor"
-      : "Your migration workspace";
+      ? "Upload a ZIP or sync a URL, convert, then open the editor"
+      : new Date().toLocaleDateString(undefined, {
+          weekday: "long",
+          month: "long",
+          day: "numeric",
+        });
+  const dashSubtitleClass = route.kind === "dashboard" ? "dash-subtitle dash-date-chip" : "dash-subtitle";
 
   return (
     <DashboardShell
       title={dashTitle}
       subtitle={dashSubtitle}
+      subtitleClassName={dashSubtitleClass}
       activeNav={route.kind === "project" ? "project" : "projects"}
       onHome={() => navigate({ kind: "dashboard" })}
       onTheme={switchTheme}
@@ -208,15 +226,15 @@ export default function App() {
             <>
               {projects.length > 0 && (
                 <section className="gcp-metrics" aria-label="Project statistics">
-                  <article className="gcp-metric">
+                  <article className="gcp-metric gcp-metric--teal">
                     <span>Total projects</span>
                     <strong>{stats.total}</strong>
                   </article>
-                  <article className="gcp-metric">
+                  <article className="gcp-metric gcp-metric--coral">
                     <span>Converted</span>
                     <strong>{stats.ready}</strong>
                   </article>
-                  <article className="gcp-metric">
+                  <article className="gcp-metric gcp-metric--navy">
                     <span>Editors running</span>
                     <strong>{stats.live}</strong>
                   </article>

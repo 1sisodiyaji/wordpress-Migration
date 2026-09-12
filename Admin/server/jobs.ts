@@ -1,6 +1,8 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
+import net from "node:net";
 import path from "node:path";
+import { getProjectsRoot } from "../../Converter/shared/wp/sites";
 import { getProjectDir } from "../../Converter/lib/scaffold";
 import { assertValidAppTsx } from "../../Converter/lib/app-shell-template";
 import { killProcessTree } from "../../Converter/shared/kill-dev-port";
@@ -36,14 +38,57 @@ const usedPorts = new Set<number>();
 const EDITOR_PORT_START = 8000;
 const EDITOR_PORT_END = 8080;
 
-function allocatePort(): number {
-  let port = EDITOR_PORT_START;
-  while (usedPorts.has(port) && port <= EDITOR_PORT_END) port += 1;
-  if (port > EDITOR_PORT_END) {
-    throw new Error(`No free editor port in ${EDITOR_PORT_START}-${EDITOR_PORT_END}`);
+function editorUrlFor(port: number): string {
+  return `http://localhost:${port}`;
+}
+
+function parseViteLocalPort(text: string): number | null {
+  const match = text.match(/Local:\s+https?:\/\/(?:localhost|127\.0\.0\.1):(\d+)/i);
+  if (!match) return null;
+  const port = Number(match[1]);
+  return Number.isFinite(port) && port > 0 ? port : null;
+}
+
+function isPortFree(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.unref();
+    server.once("error", () => resolve(false));
+    server.listen(port, "127.0.0.1", () => {
+      server.close(() => resolve(true));
+    });
+  });
+}
+
+function seedUsedPortsFromDisk(): void {
+  const root = getProjectsRoot();
+  if (!fs.existsSync(root)) return;
+  for (const name of fs.readdirSync(root)) {
+    const meta = readStudioMeta(name);
+    const live =
+      editorProcesses.has(name) ||
+      meta?.editorStatus === "running" ||
+      meta?.editorStatus === "starting";
+    if (live && meta?.editorPort) usedPorts.add(meta.editorPort);
   }
-  usedPorts.add(port);
-  return port;
+}
+
+async function allocatePort(preferred?: number): Promise<number> {
+  seedUsedPortsFromDisk();
+  const order: number[] = [];
+  if (preferred && preferred >= EDITOR_PORT_START && preferred <= EDITOR_PORT_END) {
+    order.push(preferred);
+  }
+  for (let port = EDITOR_PORT_START; port <= EDITOR_PORT_END; port += 1) {
+    if (port !== preferred) order.push(port);
+  }
+  for (const port of order) {
+    if (usedPorts.has(port) && port !== preferred) continue;
+    if (!(await isPortFree(port))) continue;
+    usedPorts.add(port);
+    return port;
+  }
+  throw new Error(`No free editor port in ${EDITOR_PORT_START}-${EDITOR_PORT_END}`);
 }
 
 function releasePort(port: number | undefined): void {
@@ -228,7 +273,7 @@ export async function runSyncFromLocalWp(
 
 export async function runGenerate(slug: string): Promise<StudioMeta> {
   stopEditor(slug);
-  const port = allocatePort();
+  const port = await allocatePort();
   pipelineBanner(`CONVERT — ${slug}`, slug);
   pipelineStep("convert", `Codegen via Converter (editor port reserved: ${port})`, slug);
   patchStudioMeta(slug, { generateStatus: "running", error: undefined, editorPort: port });
@@ -265,19 +310,19 @@ export async function startEditor(slug: string): Promise<{ port: number; url: st
 
   if (editorProcesses.has(slug)) {
     const port = meta.editorPort ?? EDITOR_PORT_START;
-    pipelineStep("editor", `Already running at http://localhost:${port}`, slug);
-    return { port, url: `http://localhost:${port}` };
+    pipelineStep("editor", `Already running at ${editorUrlFor(port)}`, slug);
+    return { port, url: editorUrlFor(port) };
   }
 
-  const port = meta.editorPort ?? allocatePort();
+  const port = await allocatePort(meta.editorPort);
   pipelineBanner(`EDITOR — ${slug}`, slug);
-  pipelineStep("editor", `Executing: pnpm dev (cwd=${projectDir})`, slug);
+  pipelineStep("editor", `Executing: pnpm dev -- --port ${port} (cwd=${projectDir})`, slug);
   pipelineDetail("PORT", String(port), slug);
-  pipelineDetail("url", `http://localhost:${port}`, slug);
+  pipelineDetail("url", editorUrlFor(port), slug);
   patchStudioMeta(slug, { editorStatus: "starting", editorPort: port });
 
   return new Promise((resolve, reject) => {
-    const child = spawn("pnpm", ["dev"], {
+    const child = spawn("pnpm", ["dev", "--", "--port", String(port), "--strictPort"], {
       cwd: projectDir,
       shell: true,
       env: { ...process.env, PORT: String(port) },
@@ -286,23 +331,30 @@ export async function startEditor(slug: string): Promise<{ port: number; url: st
 
     editorProcesses.set(slug, child);
     let resolved = false;
+    let boundPort = port;
 
-    const tryResolve = () => {
+    const tryResolve = (detectedPort?: number) => {
       if (resolved) return;
       resolved = true;
-      patchStudioMeta(slug, { editorStatus: "running", editorPort: port, editorPid: child.pid });
-      pipelineOk(`Editor running at http://localhost:${port}`, slug);
-      resolve({ port, url: `http://localhost:${port}` });
+      if (detectedPort && detectedPort !== boundPort) {
+        releasePort(boundPort);
+        usedPorts.add(detectedPort);
+        boundPort = detectedPort;
+      }
+      patchStudioMeta(slug, { editorStatus: "running", editorPort: boundPort, editorPid: child.pid });
+      pipelineOk(`Editor running at ${editorUrlFor(boundPort)}`, slug);
+      resolve({ port: boundPort, url: editorUrlFor(boundPort) });
     };
 
-    const timer = setTimeout(tryResolve, 3500);
+    const timer = setTimeout(() => tryResolve(), 3500);
 
     child.stdout?.on("data", (chunk: Buffer) => {
       const text = chunk.toString();
       process.stdout.write(`[${slug}:vite] ${text}`);
-      if (text.includes("Local:") || text.includes(`localhost:${port}`)) {
+      const detected = parseViteLocalPort(text);
+      if (detected || text.includes("Local:") || text.includes(`localhost:${port}`)) {
         clearTimeout(timer);
-        tryResolve();
+        tryResolve(detected ?? undefined);
       }
     });
 
@@ -312,7 +364,7 @@ export async function startEditor(slug: string): Promise<{ port: number; url: st
 
     child.on("exit", (code) => {
       editorProcesses.delete(slug);
-      releasePort(port);
+      releasePort(boundPort);
       patchStudioMeta(slug, { editorStatus: "stopped", editorPid: undefined });
       if (!resolved && code !== 0) {
         clearTimeout(timer);
@@ -323,7 +375,7 @@ export async function startEditor(slug: string): Promise<{ port: number; url: st
 
     child.on("error", (err) => {
       editorProcesses.delete(slug);
-      releasePort(port);
+      releasePort(boundPort);
       patchStudioMeta(slug, { editorStatus: "stopped", error: err.message });
       clearTimeout(timer);
       pipelineFail(err.message, slug);

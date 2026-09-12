@@ -66,7 +66,9 @@ export function ProjectList({ projects, onOpen, onDelete, onCreate }: Props) {
     <section className="gcp-resource-panel">
       <div className="gcp-resource-toolbar">
         <h2 className="gcp-resource-heading">All projects</h2>
-        <span className="gcp-resource-count">{projects.length} resources</span>
+        <span className="gcp-resource-count">
+          {projects.length} {projects.length === 1 ? "project" : "projects"}
+        </span>
       </div>
 
       <div className="gcp-table-wrap">
@@ -81,7 +83,7 @@ export function ProjectList({ projects, onOpen, onDelete, onCreate }: Props) {
             </tr>
           </thead>
           <tbody>
-            {projects.map((p) => {
+            {projects.map((p, i) => {
               const badge = statusBadge(p);
               const pages = p.audit?.summary?.pages;
               const name = p.meta?.name ?? p.slug;
@@ -90,7 +92,10 @@ export function ProjectList({ projects, onOpen, onDelete, onCreate }: Props) {
                 <tr key={p.slug} className="gcp-row" onClick={() => onOpen(p.slug)}>
                   <td>
                     <div className="gcp-name-cell">
-                      <span className="gcp-name-icon" aria-hidden="true">
+                      <span
+                        className={`gcp-name-icon gcp-name-icon--${["teal", "coral", "navy"][i % 3]}`}
+                        aria-hidden="true"
+                      >
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
                           <path d="M4 4h7v7H4V4zm9 0h7v7h-7V4zM4 13h7v7H4v-7zm9 0h7v7h-7v-7z" />
                         </svg>

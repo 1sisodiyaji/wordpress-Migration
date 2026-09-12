@@ -5,6 +5,7 @@ import { useScrolled } from "../hooks/useScrolled";
 interface Props {
   title?: string;
   subtitle?: string;
+  subtitleClassName?: string;
   activeNav?: "projects" | "project";
   onHome: () => void;
   onTheme: () => void;
@@ -36,6 +37,7 @@ function IconTheme({ dark }: { dark: boolean }) {
 export function DashboardShell({
   title,
   subtitle,
+  subtitleClassName = "dash-subtitle",
   activeNav = "projects",
   onHome,
   onTheme,
@@ -52,7 +54,7 @@ export function DashboardShell({
           <StudioLogo size={32} markClassName="dash-brand-logo" />
           <span className="dash-brand-text">
             <strong>Migration Studio</strong>
-            <small>Console</small>
+            <small>Workspace</small>
           </span>
         </button>
 
@@ -95,7 +97,7 @@ export function DashboardShell({
           </div>
           <div className="dash-topbar-title">
             {title ? <h1 className="dash-title">{title}</h1> : null}
-            {subtitle ? <p className="dash-subtitle">{subtitle}</p> : null}
+            {subtitle ? <p className={subtitleClassName}>{subtitle}</p> : null}
           </div>
           {actions ? <div className="dash-topbar-actions">{actions}</div> : null}
         </header>

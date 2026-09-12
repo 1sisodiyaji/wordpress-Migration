@@ -8,7 +8,7 @@ import { registerAuthRoutes } from "./auth";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STUDIO_ROOT = path.resolve(__dirname, "..");
-const PORT = Number(process.env.STUDIO_PORT ?? "4000");
+const PORT = Number(process.env.STUDIO_PORT ?? "5173");
 const isProd = process.env.NODE_ENV === "production";
 
 async function main() {

@@ -45,10 +45,10 @@ services:
       dockerfile: docker/admin.Dockerfile
       target: dev
     ports:
-      - "4000:4000"
+      - "5173:5173"
     environment:
       NODE_ENV: development
-      STUDIO_PORT: "4000"
+      STUDIO_PORT: "5173"
       CONVERTER_URL: http://converter:5174
       PROJECTS_ROOT: /app/output
       TMP_DIR: /app/tmp

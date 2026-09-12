@@ -86,6 +86,8 @@ export function ProjectFlow({
   const canOpenEditor = generateStep === "done";
   const editorRunning = project.editorRunning || meta?.editorStatus === "running";
   const editorStarting = meta?.editorStatus === "starting";
+  const editorUrl =
+    project.editorUrl ?? (meta?.editorPort ? `http://localhost:${meta.editorPort}` : null);
   const audit = project.audit;
   const syncRunning = scrapeStep === "active" || generateStep === "active" || syncBusy;
   const local = isLocalUrl(wpUrl);
@@ -323,16 +325,17 @@ export function ProjectFlow({
               {editorStarting && <span className="badge badge-scraping">Starting…</span>}
             </div>
             <p>
-              Launch the GrapeJS app on another port
-              {meta?.editorPort ? ` (port ${meta.editorPort})` : ""} and open it in a new tab.
+              Launch the GrapeJS editor. The URL below is the live listen address
+              {meta?.editorPort ? ` (port ${meta.editorPort})` : ""}, not a fixed default.
             </p>
 
-            {editorRunning && project.editorUrl && (
+            {(editorRunning || editorStarting) && editorUrl && (
               <div className="editor-url-chip">
-                <span className="editor-url-label">Running at</span>
-                <a href={project.editorUrl} target="_blank" rel="noopener noreferrer">
-                  {project.editorUrl}
+                <span className="editor-url-label">{editorStarting ? "Starting at" : "Running at"}</span>
+                <a href={editorUrl} target="_blank" rel="noopener noreferrer">
+                  {editorUrl}
                 </a>
+                {meta?.editorPort ? <span className="editor-url-port">port {meta.editorPort}</span> : null}
               </div>
             )}
 
