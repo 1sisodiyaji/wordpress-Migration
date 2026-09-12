@@ -12,7 +12,9 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint Converter Admin",
     "docker:dev": "docker compose -f compose.dev.yml up --build",
-    "docker:prod": "docker compose -f compose.pro.yml up --build"
+    "docker:prod": "docker compose -f compose.prod.yml up --build",
+    "docker:build": "docker compose -f compose.prod.yml build",
+    "docker:push": "docker push 1sisodiyaji/pen-wordpress-migrator-admin:latest && docker push 1sisodiyaji/pen-wordpress-migrator-converter:latest"
   },
   "dependencies": {
     "adm-zip": "^0.5.16",
