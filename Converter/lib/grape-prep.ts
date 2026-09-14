@@ -14,7 +14,9 @@ export function prepareGrapeHtml(html: string): string {
 export function rewriteAssetUrls(html: string): string {
   return html
     .replace(/https?:\/\/[^"'()\s]+?\/wp-content\//gi, "/assets/wp-content/")
-    .replace(/(?<=["'(])\/?wp-content\//g, "/assets/wp-content/");
+    .replace(/(?<=["'(])\/?wp-content\//g, "/assets/wp-content/")
+    .replace(/https?:\/\/[^"'()\s]+?\/wp-includes\//gi, "/assets/wp-includes/")
+    .replace(/(?<=["'(])\/?wp-includes\//g, "/assets/wp-includes/");
 }
 
 /** Drop srcset candidates that were not copied (common cause of missing logos). */

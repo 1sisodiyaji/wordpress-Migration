@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { Project } from "../api";
 import {
   Button,
@@ -11,6 +11,7 @@ import {
   Input,
   Label,
 } from "./ui";
+import { cx } from "../lib/cx";
 
 export interface SyncFromWpCreds {
   wpUrl: string;
@@ -22,6 +23,7 @@ export interface SyncFromWpCreds {
 interface Props {
   project: Project;
   onBack: () => void;
+  onCompare: () => void;
   onSyncFromWp: (creds: SyncFromWpCreds) => Promise<void>;
   onUploadExport: (bundle: File) => Promise<void>;
   onGenerate: () => Promise<void>;
@@ -47,6 +49,7 @@ function isLocalUrl(url: string): boolean {
 export function ProjectFlow({
   project,
   onBack,
+  onCompare,
   onSyncFromWp,
   onUploadExport,
   onGenerate,
@@ -151,43 +154,61 @@ export function ProjectFlow({
     }
   }
 
+  const stepShell = (state: string, numTone: string, children: ReactNode, num: number) => (
+    <li
+      className={cx(
+        "flex gap-4 rounded-[1.625rem] bg-studio-surface p-5 shadow-studio",
+        state === "active" && "shadow-[0_14px_34px_rgba(255,107,74,0.12)]",
+      )}
+    >
+      <span
+        className={cx(
+          "grid size-9.5 shrink-0 place-items-center rounded-full text-[0.9rem] font-extrabold",
+          state === "active" && "bg-coral text-white",
+          state === "done" && "bg-ok-soft text-ok",
+          state === "failed" && "bg-danger-soft text-danger",
+          state === "pending" && numTone,
+        )}
+      >
+        {num}
+      </span>
+      <div className="min-w-0 flex-1">{children}</div>
+    </li>
+  );
+
   return (
-    <div className="flow">
-      <div className="flow-header">
+    <div>
+      <div className="mb-4.5 flex flex-wrap items-center gap-4">
         <Button type="button" variant="ghost" onClick={onBack}>
           ← Projects
         </Button>
-        <div>
-          <h1>{displayName}</h1>
-          <p className="muted">
+        <div className="min-w-0 flex-1">
+          <h1 className="sr-only">{displayName}</h1>
+          <p className="m-0 text-sm font-semibold text-studio-muted">
             {meta?.url ? meta.url : "No WordPress URL yet"} · <code>{project.slug}</code>
           </p>
         </div>
-        <Button
-          type="button"
-          variant="ghost"
-          className="ui-btn-danger-text"
-          onClick={() => setShowDelete(true)}
-        >
+        <Button type="button" variant="ghost" className="!ml-auto !text-danger hover:!bg-danger-soft" onClick={() => setShowDelete(true)}>
           Delete
         </Button>
       </div>
 
-      <ol className="stepper">
-        <li className={`step step-${scrapeStep}`}>
-          <span className="step-num">1</span>
-          <div className="step-body">
-            <h3>Import WordPress export</h3>
-            <p>
+      <ol className="m-0 mb-6 flex list-none flex-col gap-4.5 p-0">
+        {stepShell(
+          scrapeStep,
+          "bg-teal-soft text-teal-ink",
+          <>
+            <h3 className="mt-0 mb-1.5 text-base font-extrabold tracking-tight">Import WordPress export</h3>
+            <p className="mt-0 mb-3 text-sm text-studio-muted">
               Upload a <code>wp-grape-export</code> ZIP, or sync live from a site URL with credentials.
             </p>
 
-            <div className="sync-panel">
+            <div className="grid w-full grid-cols-1 items-stretch gap-4 lg:grid-cols-[1fr_auto_1fr]">
               <Card
                 title="Upload export ZIP"
                 description="Import an existing wp-grape-export bundle from your computer."
               >
-                <div className="ui-stack sync-upload-stack">
+                <div className="flex flex-col gap-3.5">
                   <FileDrop
                     accept=".zip"
                     file={pluginZip}
@@ -195,7 +216,7 @@ export function ProjectFlow({
                     placeholder="Drop or choose export ZIP"
                     disabled={syncRunning || uploadBusy}
                   />
-                  <div className="ui-actions">
+                  <div className="flex flex-wrap items-center gap-2">
                     <Button
                       type="button"
                       variant="default"
@@ -208,15 +229,20 @@ export function ProjectFlow({
                 </div>
               </Card>
 
-              <div className="sync-panel-divider" aria-hidden="true">
+              <div
+                className="flex items-center gap-3 px-1 text-xs font-semibold text-studio-muted lowercase lg:flex-col lg:justify-center"
+                aria-hidden="true"
+              >
+                <span className="h-px flex-1 bg-studio-border lg:h-auto lg:w-px lg:flex-1" />
                 <span>or</span>
+                <span className="h-px flex-1 bg-studio-border lg:h-auto lg:w-px lg:flex-1" />
               </div>
 
               <Card
                 title="Sync from URL"
                 description="Connect to any WordPress install running wp-grape-export."
               >
-                <div className="ui-stack">
+                <div className="flex flex-col gap-3.5">
                   <Field>
                     <Label htmlFor="wp-url">WordPress URL</Label>
                     <Input
@@ -267,90 +293,93 @@ export function ProjectFlow({
                     disabled={syncRunning || uploadBusy}
                   />
 
-                  <div className="ui-actions">
-                    <Button
-                      type="button"
-                      variant="default"
-                      disabled={syncRunning || uploadBusy}
-                      onClick={submitSync}
-                    >
-                      {syncRunning
-                        ? "Syncing…"
-                        : scrapeStep === "done"
-                          ? "Resync"
-                          : "Sync from URL"}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button type="button" variant="default" disabled={syncRunning || uploadBusy} onClick={submitSync}>
+                      {syncRunning ? "Syncing…" : scrapeStep === "done" ? "Resync" : "Sync from URL"}
                     </Button>
                   </div>
                 </div>
               </Card>
             </div>
 
-            {formError && <div className="alert alert-error">{formError}</div>}
-          </div>
-        </li>
+            {formError && (
+              <div className="mt-3 rounded-[1.125rem] bg-danger-soft px-4 py-3 text-sm font-semibold text-danger">
+                {formError}
+              </div>
+            )}
+          </>,
+          1,
+        )}
 
-        <li className={`step step-${generateStep}`}>
-          <span className="step-num">2</span>
-          <div className="step-body">
-            <h3>Convert to GrapeJS</h3>
-            <p>Build a React project with GrapeJS components from imported HTML.</p>
-            <div className="ui-actions">
+        {stepShell(
+          generateStep,
+          "bg-coral-soft text-coral",
+          <>
+            <h3 className="mt-0 mb-1.5 text-base font-extrabold tracking-tight">Convert to GrapeJS</h3>
+            <p className="mt-0 mb-3 text-sm text-studio-muted">
+              Build a React project with GrapeJS components from imported HTML.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
               <Button
                 type="button"
                 variant="default"
                 disabled={!canGenerate && generateStep !== "done"}
                 onClick={onGenerate}
               >
-                {generateStep === "active"
-                  ? "Converting…"
-                  : generateStep === "done"
-                    ? "Re-convert"
-                    : "Convert"}
+                {generateStep === "active" ? "Converting…" : generateStep === "done" ? "Re-convert" : "Convert"}
               </Button>
             </div>
-          </div>
-        </li>
+          </>,
+          2,
+        )}
 
-        <li className={`step step-${editorStep}`}>
-          <span className="step-num">3</span>
-          <div className="step-body">
-            <div className="step-title-row">
-              <h3>Open editor</h3>
+        {stepShell(
+          editorStep,
+          "bg-navy-soft text-navy",
+          <>
+            <div className="mb-1.5 flex flex-wrap items-center gap-2.5">
+              <h3 className="m-0 text-base font-extrabold tracking-tight">Open editor</h3>
               {editorRunning && (
-                <span className="live-badge">
-                  <span className="live-dot" aria-hidden="true" />
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-coral-soft px-2.5 py-1 text-[0.72rem] font-semibold text-coral">
+                  <span className="studio-live-dot size-1.5 rounded-full bg-ok" aria-hidden="true" />
                   Live
                 </span>
               )}
-              {editorStarting && <span className="badge badge-scraping">Starting…</span>}
+              {editorStarting && (
+                <span className="rounded-full bg-teal-soft px-2.5 py-1 text-[0.7rem] font-bold text-teal-ink">
+                  Starting…
+                </span>
+              )}
             </div>
-            <p>
+            <p className="mt-0 mb-3 text-sm text-studio-muted">
               Launch the GrapeJS editor. The URL below is the live listen address
               {meta?.editorPort ? ` (port ${meta.editorPort})` : ""}, not a fixed default.
             </p>
 
             {(editorRunning || editorStarting) && editorUrl && (
-              <div className="editor-url-chip">
-                <span className="editor-url-label">{editorStarting ? "Starting at" : "Running at"}</span>
-                <a href={editorUrl} target="_blank" rel="noopener noreferrer">
+              <div className="mb-3.5 flex flex-wrap items-center gap-2.5 rounded-full bg-teal-soft px-4 py-2.5 text-sm">
+                <span className="text-xs tracking-wide text-studio-muted uppercase">
+                  {editorStarting ? "Starting at" : "Running at"}
+                </span>
+                <a className="font-bold break-all text-teal-ink hover:underline" href={editorUrl} target="_blank" rel="noopener noreferrer">
                   {editorUrl}
                 </a>
-                {meta?.editorPort ? <span className="editor-url-port">port {meta.editorPort}</span> : null}
+                {meta?.editorPort ? (
+                  <span className="ml-auto rounded-full bg-studio-surface px-2.5 py-0.5 text-xs font-bold text-navy">
+                    port {meta.editorPort}
+                  </span>
+                ) : null}
               </div>
             )}
 
-            <div className="ui-actions">
+            <div className="flex flex-wrap items-center gap-2">
               <Button
                 type="button"
                 variant="default"
                 disabled={!canOpenEditor || editorBusy || editorStarting}
                 onClick={() => handleEditorAction("open")}
               >
-                {editorStarting
-                  ? "Starting…"
-                  : editorRunning
-                    ? "Open in new tab"
-                    : "Start & open"}
+                {editorStarting ? "Starting…" : editorRunning ? "Open in new tab" : "Start & open"}
               </Button>
 
               {(editorRunning || editorStarting) && (
@@ -363,47 +392,56 @@ export function ProjectFlow({
                   {editorBusy ? "Stopping…" : "Stop editor"}
                 </Button>
               )}
+
+              {canOpenEditor && (
+                <Button type="button" variant="ghost" onClick={onCompare}>
+                  Compare & insights
+                </Button>
+              )}
             </div>
-          </div>
-        </li>
+          </>,
+          3,
+        )}
       </ol>
 
       {audit &&
         (audit.summary || audit.unresolvedShortcodes.length > 0 || audit.warnings.length > 0) && (
-          <section className="audit-panel">
-            <div className="log-panel-header">
-              <h3>Import audit</h3>
+          <section className="mb-6 overflow-hidden rounded-3xl bg-studio-surface px-4 pb-4 shadow-studio">
+            <div className="flex items-center justify-between border-b border-studio-border px-0 py-3">
+              <h3 className="m-0 text-sm font-bold">Import audit</h3>
               {audit.unresolvedShortcodes.length === 0 && audit.warnings.length === 0 ? (
-                <span className="badge badge-ok">Clean</span>
+                <span className="rounded-full bg-ok-soft px-2.5 py-1 text-[0.7rem] font-bold text-ok">Clean</span>
               ) : (
-                <span className="badge badge-warn">
+                <span className="rounded-full bg-danger-soft px-2.5 py-1 text-[0.7rem] font-bold text-danger">
                   {audit.unresolvedShortcodes.length + audit.warnings.length} issue(s)
                 </span>
               )}
             </div>
 
             {audit.summary && (
-              <ul className="audit-summary">
-                <li>
-                  <strong>{audit.summary.pages}</strong> pages
+              <ul className="m-0 grid list-none grid-cols-[repeat(auto-fit,minmax(110px,1fr))] gap-3 p-0 pt-3 text-sm text-studio-muted">
+                <li className="rounded-2xl bg-studio-row px-3.5 py-3">
+                  <strong className="text-studio-text">{audit.summary.pages}</strong> pages
                 </li>
-                <li>
-                  <strong>{audit.summary.templates}</strong> templates
+                <li className="rounded-2xl bg-studio-row px-3.5 py-3">
+                  <strong className="text-studio-text">{audit.summary.templates}</strong> templates
                 </li>
-                <li>
-                  <strong>{audit.summary.menus}</strong> menus
+                <li className="rounded-2xl bg-studio-row px-3.5 py-3">
+                  <strong className="text-studio-text">{audit.summary.menus}</strong> menus
                 </li>
-                <li>
-                  <strong>{audit.summary.media}</strong> media
+                <li className="rounded-2xl bg-studio-row px-3.5 py-3">
+                  <strong className="text-studio-text">{audit.summary.media}</strong> media
                 </li>
-                <li>{audit.summary.hasLayout ? "Header/footer ✓" : "No layout"}</li>
+                <li className="rounded-2xl bg-studio-row px-3.5 py-3">
+                  {audit.summary.hasLayout ? "Header/footer ✓" : "No layout"}
+                </li>
               </ul>
             )}
 
             {audit.warnings.length > 0 && (
-              <div className="audit-block">
-                <h4>Warnings</h4>
-                <ul className="audit-warnings">
+              <div className="mt-3">
+                <h4 className="mt-0 mb-2 text-xs font-semibold tracking-wide text-studio-muted uppercase">Warnings</h4>
+                <ul className="m-0 list-disc pl-5 text-sm text-studio-muted">
                   {audit.warnings.map((w, i) => (
                     <li key={i}>{w}</li>
                   ))}
@@ -412,24 +450,32 @@ export function ProjectFlow({
             )}
 
             {audit.unresolvedShortcodes.length > 0 && (
-              <div className="audit-block">
-                <h4>Unresolved shortcodes</h4>
-                <table className="audit-table">
+              <div className="mt-3">
+                <h4 className="mt-0 mb-2 text-xs font-semibold tracking-wide text-studio-muted uppercase">
+                  Unresolved shortcodes
+                </h4>
+                <table className="w-full border-collapse text-[0.82rem]">
                   <thead>
                     <tr>
-                      <th>Shortcode</th>
-                      <th>Page</th>
-                      <th>Post ID</th>
+                      <th className="border-b border-studio-border px-2 py-2 text-left font-medium text-studio-muted">
+                        Shortcode
+                      </th>
+                      <th className="border-b border-studio-border px-2 py-2 text-left font-medium text-studio-muted">
+                        Page
+                      </th>
+                      <th className="border-b border-studio-border px-2 py-2 text-left font-medium text-studio-muted">
+                        Post ID
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
                     {audit.unresolvedShortcodes.map((s, i) => (
                       <tr key={i}>
-                        <td>
+                        <td className="border-b border-studio-border px-2 py-2">
                           <code>[{s.tag}]</code>
                         </td>
-                        <td>{s.path}</td>
-                        <td>{s.postId}</td>
+                        <td className="border-b border-studio-border px-2 py-2">{s.path}</td>
+                        <td className="border-b border-studio-border px-2 py-2">{s.postId}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -440,16 +486,26 @@ export function ProjectFlow({
         )}
 
       {(project.phase || project.logs) && (
-        <section className="log-panel">
-          <div className="log-panel-header">
-            <h3>Activity log</h3>
-            {project.phase && <span className="badge">{project.phase}</span>}
+        <section className="mb-6 overflow-hidden rounded-3xl bg-studio-surface shadow-studio">
+          <div className="flex items-center justify-between border-b border-studio-border px-4 py-3">
+            <h3 className="m-0 text-sm font-bold">Activity log</h3>
+            {project.phase && (
+              <span className="rounded-full bg-studio-row px-2.5 py-1 text-[0.7rem] font-bold text-studio-muted">
+                {project.phase}
+              </span>
+            )}
           </div>
-          <pre className="log-output">{project.logs || "Waiting for activity…"}</pre>
+          <pre className="m-0 max-h-[17.5rem] overflow-auto rounded-b-3xl bg-studio-row p-4 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap text-studio-text">
+            {project.logs || "Waiting for activity…"}
+          </pre>
         </section>
       )}
 
-      {meta?.error && <div className="alert alert-error">{meta.error}</div>}
+      {meta?.error && (
+        <div className="rounded-[1.125rem] bg-danger-soft px-4 py-3 text-sm font-semibold text-danger shadow-studio">
+          {meta.error}
+        </div>
+      )}
 
       {showDelete && (
         <ConfirmDeleteModal

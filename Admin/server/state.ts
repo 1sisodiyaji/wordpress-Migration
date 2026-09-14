@@ -33,6 +33,7 @@ function metaPath(slug: string): string {
 
 /** True when the site folder exists and is readable (not a broken junction). */
 export function isSiteDirHealthy(slug: string): boolean {
+  if (!slug) return false;
   const dir = path.join(getProjectsRoot(), slug);
   if (!fs.existsSync(dir)) return false;
   try {

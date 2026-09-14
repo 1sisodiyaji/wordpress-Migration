@@ -359,7 +359,7 @@ export function pageCanvasAssets(
 function collectBlockThemeCanvasStyles(assetsRoot: string): string[] {
   const styles: string[] = [];
   const wpRoot = path.join(assetsRoot, "wp-content");
-  if (!fs.existsSync(wpRoot)) return styles;
+  const includesRoot = path.join(assetsRoot, "wp-includes");
 
   const pushGlob = (dirRel: string) => {
     const absDir = path.join(wpRoot, dirRel);
@@ -370,37 +370,65 @@ function collectBlockThemeCanvasStyles(assetsRoot: string): string[] {
     }
   };
 
-  // Themes (Neve style-main-new.min.css, etc.)
-  const themesRoot = path.join(wpRoot, "themes");
-  if (fs.existsSync(themesRoot)) {
-    for (const theme of fs.readdirSync(themesRoot)) {
-      const themeDir = path.join(themesRoot, theme);
-      if (!fs.statSync(themeDir).isDirectory()) continue;
-      for (const name of ["style-main-new.min.css", "style-main.min.css", "style.css"]) {
-        if (fs.existsSync(path.join(themeDir, name))) {
-          styles.push(`/assets/wp-content/themes/${theme}/${name}`);
-        }
+  // Core Gutenberg block-library (copied from wp-includes by the plugin).
+  if (fs.existsSync(includesRoot)) {
+    for (const rel of [
+      "css/dist/block-library/style.min.css",
+      "css/dist/block-library/style.css",
+      "css/dist/block-library/theme.min.css",
+      "css/dist/block-library/theme.css",
+      "css/classic-themes.min.css",
+      "css/classic-themes.css",
+    ]) {
+      if (fs.existsSync(path.join(includesRoot, rel))) {
+        styles.push(`/assets/wp-includes/${rel}`);
       }
     }
   }
 
-  pushGlob("plugins/otter-blocks/build/atomic-wind");
-  for (const rel of [
-    "plugins/otter-blocks/build/style.css",
-    "plugins/otter-blocks/build/blocks/style.css",
-  ]) {
-    if (fs.existsSync(path.join(wpRoot, rel))) {
-      styles.push(`/assets/wp-content/${rel}`);
+  if (!fs.existsSync(wpRoot)) {
+    // Still include inline dumps below.
+  } else {
+    // Themes (Neve style-main-new.min.css, Spexo assets/css, etc.)
+    const themesRoot = path.join(wpRoot, "themes");
+    if (fs.existsSync(themesRoot)) {
+      for (const theme of fs.readdirSync(themesRoot)) {
+        const themeDir = path.join(themesRoot, theme);
+        if (!fs.statSync(themeDir).isDirectory()) continue;
+        for (const name of ["style-main-new.min.css", "style-main.min.css", "style.css"]) {
+          if (fs.existsSync(path.join(themeDir, name))) {
+            styles.push(`/assets/wp-content/themes/${theme}/${name}`);
+          }
+        }
+        const themeCssDir = path.join(themeDir, "assets", "css");
+        if (fs.existsSync(themeCssDir)) {
+          for (const file of fs.readdirSync(themeCssDir).sort()) {
+            if (!file.endsWith(".css")) continue;
+            styles.push(`/assets/wp-content/themes/${theme}/assets/css/${file}`);
+          }
+        }
+      }
+    }
+
+    pushGlob("plugins/otter-blocks/build/atomic-wind");
+    for (const rel of [
+      "plugins/otter-blocks/build/style.css",
+      "plugins/otter-blocks/build/blocks/style.css",
+    ]) {
+      if (fs.existsSync(path.join(wpRoot, rel))) {
+        styles.push(`/assets/wp-content/${rel}`);
+      }
     }
   }
 
-  // Inline dumps from export (Tailwind / theme vars).
+  // Inline dumps from export (global-styles / theme vars / customizer).
   const inlineDir = path.join(assetsRoot, "inline", "styles");
   if (fs.existsSync(inlineDir)) {
     for (const file of fs.readdirSync(inlineDir).sort()) {
       if (!file.endsWith(".css")) continue;
       // Prefer otter/neve/atomic/global; skip elementor leftovers if any.
       if (/elementor/i.test(file)) continue;
+      if (/^admin-bar\.css$/i.test(file)) continue;
       styles.push(`/assets/inline/styles/${file}`);
     }
   }

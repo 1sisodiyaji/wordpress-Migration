@@ -183,3 +183,48 @@ export async function deleteProject(slug: string): Promise<void> {
   const data = await readJson<{ error?: string }>(res).catch(() => ({ error: undefined }));
   if (!res.ok) throw new Error(data.error ?? "Failed to delete project");
 }
+
+export interface PageInsight {
+  url: string;
+  ok: boolean;
+  error?: string;
+  status?: number;
+  title?: string;
+  ttfbMs?: number;
+  downloadMs?: number;
+  htmlBytes?: number;
+  images?: number;
+  imagesMissingSize?: number;
+  scripts?: number;
+  stylesheets?: number;
+  fonts?: number;
+  iframes?: number;
+  headings?: number;
+  clsRisk?: number;
+  clsRiskLabel?: "low" | "moderate" | "high";
+  findings?: string[];
+  frameBlocked?: boolean;
+}
+
+export interface CompareInsightsResponse {
+  originalUrl: string | null;
+  migratedUrl: string | null;
+  original: PageInsight;
+  migrated: PageInsight;
+  deltas: { label: string; original: string; migrated: string; better: "original" | "migrated" | "same" }[];
+  measuredAt: string;
+}
+
+export async function fetchCompareInsights(
+  slug: string,
+  opts?: { originalUrl?: string; migratedUrl?: string },
+): Promise<CompareInsightsResponse> {
+  const params = new URLSearchParams();
+  if (opts?.originalUrl) params.set("originalUrl", opts.originalUrl);
+  if (opts?.migratedUrl) params.set("migratedUrl", opts.migratedUrl);
+  const qs = params.toString();
+  const res = await fetch(`/api/projects/${encodeURIComponent(slug)}/compare-insights${qs ? `?${qs}` : ""}`);
+  const data = await readJson<CompareInsightsResponse & { error?: string }>(res);
+  if (!res.ok) throw new Error(data.error ?? "Failed to load page insights");
+  return data;
+}

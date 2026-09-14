@@ -143,6 +143,21 @@ class Assets_Copier {
 				} else {
 					$this->warnings[] = sprintf( 'Stylesheet/script file missing on disk: %s', $src );
 				}
+			} elseif ( 'styles' === $kind ) {
+				// Core Gutenberg CSS lives under wp-includes (not wp-content).
+				$includes_rel = $this->wp_includes_rel_from_url( $src );
+				if ( $includes_rel && $this->is_allowed_wp_includes_style( $handle, $includes_rel ) ) {
+					$source = ABSPATH . 'wp-includes/' . $includes_rel;
+					if ( is_readable( $source ) ) {
+						$dest = 'assets/wp-includes/' . $includes_rel;
+						if ( $this->writer->copy( $source, $dest ) ) {
+							$entry['bundlePath'] = $dest;
+							$this->copied_files++;
+						}
+					} else {
+						$this->warnings[] = sprintf( 'wp-includes stylesheet missing on disk: %s', $src );
+					}
+				}
 			}
 		}
 
@@ -284,10 +299,18 @@ class Assets_Copier {
 		$rels = array();
 
 		foreach ( array( get_stylesheet(), get_template() ) as $theme ) {
-			foreach ( array( 'assets/images', 'assets/fonts', 'assets/img' ) as $subdir ) {
+			foreach ( array( 'assets/images', 'assets/fonts', 'assets/img', 'assets/css' ) as $subdir ) {
 				$dir = WP_CONTENT_DIR . '/themes/' . $theme . '/' . $subdir;
 				if ( is_dir( $dir ) ) {
 					$this->copy_font_dirs( array( 'themes/' . $theme . '/' . $subdir ) );
+				}
+			}
+			// Theme CSS trees (Spexo / block themes often keep styles under assets/css).
+			$css_dir = WP_CONTENT_DIR . '/themes/' . $theme . '/assets/css';
+			if ( is_dir( $css_dir ) ) {
+				foreach ( glob( $css_dir . '/*.css' ) ?: array() as $file ) {
+					$rel    = 'themes/' . $theme . '/assets/css/' . basename( $file );
+					$rels[] = $rel;
 				}
 			}
 		}
@@ -331,6 +354,31 @@ class Assets_Copier {
 		}
 
 		$this->copy_rel_list( array_values( array_unique( $rels ) ) );
+		$this->copy_core_block_library_css();
+	}
+
+	/**
+	 * Always stage Gutenberg core block-library CSS from wp-includes.
+	 */
+	private function copy_core_block_library_css() {
+		$files = array(
+			'css/dist/block-library/style.min.css',
+			'css/dist/block-library/style.css',
+			'css/dist/block-library/theme.min.css',
+			'css/dist/block-library/theme.css',
+			'css/classic-themes.min.css',
+			'css/classic-themes.css',
+		);
+		foreach ( $files as $rel ) {
+			$source = ABSPATH . 'wp-includes/' . $rel;
+			if ( ! is_readable( $source ) ) {
+				continue;
+			}
+			$dest = 'assets/wp-includes/' . $rel;
+			if ( $this->writer->copy( $source, $dest ) ) {
+				$this->copied_files++;
+			}
+		}
 	}
 
 	/**
@@ -388,6 +436,49 @@ class Assets_Copier {
 			return $matches[1];
 		}
 		return null;
+	}
+
+	/**
+	 * Extract wp-includes-relative path from an asset URL.
+	 *
+	 * @param string $url Asset URL.
+	 * @return string|null
+	 */
+	private function wp_includes_rel_from_url( $url ) {
+		$url = preg_replace( '#\?.*$#', '', (string) $url );
+		if ( preg_match( '#/wp-includes/(.+)$#i', $url, $matches ) ) {
+			return $matches[1];
+		}
+		return null;
+	}
+
+	/**
+	 * Only stage frontend Gutenberg CSS from wp-includes (never editor chrome).
+	 *
+	 * @param string $handle Style handle.
+	 * @param string $rel    Path under wp-includes.
+	 * @return bool
+	 */
+	private function is_allowed_wp_includes_style( $handle, $rel ) {
+		$handle = strtolower( (string) $handle );
+		$rel    = strtolower( (string) $rel );
+
+		if ( preg_match( '/block-editor|block-directory|components|preferences|editor/i', $handle ) ) {
+			return false;
+		}
+		if ( preg_match( '#block-library/(editor|reset)#', $rel ) ) {
+			return false;
+		}
+		if ( preg_match( '#css/dist/block-library/(style|theme)(\.min)?\.css$#', $rel ) ) {
+			return true;
+		}
+		if ( preg_match( '#css/classic-themes(\.min)?\.css$#', $rel ) ) {
+			return true;
+		}
+		if ( in_array( $handle, array( 'wp-block-library', 'wp-block-library-theme', 'classic-theme-styles' ), true ) ) {
+			return true;
+		}
+		return false;
 	}
 
 	/**

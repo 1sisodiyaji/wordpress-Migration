@@ -16,19 +16,29 @@ import { DashboardShell } from "./components/DashboardShell";
 import { NewProjectPanel } from "./components/NewProjectPanel";
 import { ProjectFlow, type SyncFromWpCreds } from "./components/ProjectFlow";
 import { ProjectList } from "./components/ProjectList";
+import { CompareInsights } from "./components/CompareInsights";
 
-type Route = { kind: "dashboard" } | { kind: "project"; slug: string };
+type Route =
+  | { kind: "dashboard" }
+  | { kind: "project"; slug: string }
+  | { kind: "compare"; slug: string };
 
 function parsePath(): Route {
   const path = window.location.pathname.replace(/\/+$/, "") || "/";
   if (path.startsWith("/project/")) {
-    const slug = decodeURIComponent(path.slice("/project/".length).split("/")[0] ?? "");
-    return slug ? { kind: "project", slug } : { kind: "dashboard" };
+    const rest = decodeURIComponent(path.slice("/project/".length));
+    const [slug, sub] = rest.split("/");
+    if (!slug) return { kind: "dashboard" };
+    if (sub === "compare") return { kind: "compare", slug };
+    return { kind: "project", slug };
   }
   return { kind: "dashboard" };
 }
 
 function routeToPath(route: Route): string {
+  if (route.kind === "compare") {
+    return `/project/${encodeURIComponent(route.slug)}/compare`;
+  }
   if (route.kind === "project") {
     return `/project/${encodeURIComponent(route.slug)}`;
   }
@@ -96,7 +106,7 @@ export default function App() {
   const refresh = useCallback(async () => {
     const list = await fetchProjects();
     setProjects(list);
-    if (route.kind === "project") {
+    if (route.kind === "project" || route.kind === "compare") {
       const p = await fetchProject(route.slug);
       setActive(p);
     }
@@ -107,7 +117,7 @@ export default function App() {
   }, [refresh]);
 
   useEffect(() => {
-    if (route.kind !== "project") return;
+    if (route.kind !== "project" && route.kind !== "compare") return;
     const id = setInterval(refresh, 2000);
     return () => clearInterval(id);
   }, [route, refresh]);
@@ -188,55 +198,81 @@ export default function App() {
   }
 
   const dashTitle =
-    route.kind === "project" ? active?.meta?.name ?? active?.slug ?? "Project" : "Hey, ready to migrate? 👋";
+    route.kind === "compare"
+      ? `Compare · ${active?.meta?.name ?? active?.slug ?? "Project"}`
+      : route.kind === "project"
+        ? active?.meta?.name ?? active?.slug ?? "Project"
+        : "Hey, ready to migrate? 👋";
   const dashSubtitle =
-    route.kind === "project"
-      ? "Upload a ZIP or sync a URL, convert, then open the editor"
-      : new Date().toLocaleDateString(undefined, {
-          weekday: "long",
-          month: "long",
-          day: "numeric",
-        });
-  const dashSubtitleClass = route.kind === "dashboard" ? "dash-subtitle dash-date-chip" : "dash-subtitle";
+    route.kind === "compare"
+      ? "Original homepage vs migrated GrapeJS · load & CLS insights"
+      : route.kind === "project"
+        ? "Upload a ZIP or sync a URL, convert, then open the editor"
+        : new Date().toLocaleDateString(undefined, {
+            weekday: "long",
+            month: "long",
+            day: "numeric",
+          });
+  const dashSubtitleClass =
+    route.kind === "dashboard"
+      ? "mt-2 inline-flex items-center rounded-full bg-studio-row px-3 py-1 text-[0.8rem] font-bold text-navy"
+      : undefined;
 
   return (
     <DashboardShell
       title={dashTitle}
       subtitle={dashSubtitle}
       subtitleClassName={dashSubtitleClass}
-      activeNav={route.kind === "project" ? "project" : "projects"}
+      activeNav={route.kind === "dashboard" ? "projects" : "project"}
       onHome={() => navigate({ kind: "dashboard" })}
       onTheme={switchTheme}
       isDark={isDark}
       actions={
         route.kind === "dashboard" ? (
-          <button type="button" className="btn btn-primary" onClick={() => setShowNew(true)}>
+          <button
+            type="button"
+            className="inline-flex h-10 items-center rounded-full bg-coral px-5 text-sm font-bold text-white transition hover:-translate-y-px hover:bg-coral-hover hover:shadow-[0_8px_18px_rgba(30,58,95,0.08)]"
+            onClick={() => setShowNew(true)}
+          >
             Create project
           </button>
         ) : undefined
       }
     >
-      {error && <div className="alert alert-error">{error}</div>}
+      {error && (
+        <div className="mb-4 rounded-[1.125rem] bg-danger-soft px-4 py-3 text-sm font-semibold text-danger shadow-studio">
+          {error}
+        </div>
+      )}
 
       {route.kind === "dashboard" && (
         <>
           {loading ? (
-            <p className="muted">Loading projects…</p>
+            <p className="text-studio-muted">Loading projects…</p>
           ) : (
             <>
               {projects.length > 0 && (
-                <section className="gcp-metrics" aria-label="Project statistics">
-                  <article className="gcp-metric gcp-metric--teal">
-                    <span>Total projects</span>
-                    <strong>{stats.total}</strong>
+                <section className="mb-4.5 grid grid-cols-1 gap-4 sm:grid-cols-3" aria-label="Project statistics">
+                  <article className="relative overflow-hidden rounded-3xl bg-studio-surface p-5 shadow-studio">
+                    <span className="relative z-1 text-[0.8125rem] font-semibold text-studio-muted">Total projects</span>
+                    <strong className="relative z-1 mt-1.5 block text-[1.85rem] font-extrabold tracking-tight text-teal-ink">
+                      {stats.total}
+                    </strong>
+                    <span className="absolute -right-4 -bottom-5 size-[5.5rem] rounded-full bg-teal-soft" aria-hidden="true" />
                   </article>
-                  <article className="gcp-metric gcp-metric--coral">
-                    <span>Converted</span>
-                    <strong>{stats.ready}</strong>
+                  <article className="relative overflow-hidden rounded-3xl bg-studio-surface p-5 shadow-studio">
+                    <span className="relative z-1 text-[0.8125rem] font-semibold text-studio-muted">Converted</span>
+                    <strong className="relative z-1 mt-1.5 block text-[1.85rem] font-extrabold tracking-tight text-coral">
+                      {stats.ready}
+                    </strong>
+                    <span className="absolute -right-4 -bottom-5 size-[5.5rem] rounded-full bg-coral-soft" aria-hidden="true" />
                   </article>
-                  <article className="gcp-metric gcp-metric--navy">
-                    <span>Editors running</span>
-                    <strong>{stats.live}</strong>
+                  <article className="relative overflow-hidden rounded-3xl bg-studio-surface p-5 shadow-studio">
+                    <span className="relative z-1 text-[0.8125rem] font-semibold text-studio-muted">Editors running</span>
+                    <strong className="relative z-1 mt-1.5 block text-[1.85rem] font-extrabold tracking-tight text-navy">
+                      {stats.live}
+                    </strong>
+                    <span className="absolute -right-4 -bottom-5 size-[5.5rem] rounded-full bg-navy-soft" aria-hidden="true" />
                   </article>
                 </section>
               )}
@@ -256,20 +292,28 @@ export default function App() {
         </>
       )}
 
-      {route.kind === "project" &&
+      {(route.kind === "project" || route.kind === "compare") &&
         (active ? (
-          <ProjectFlow
-            project={active}
-            onBack={() => navigate({ kind: "dashboard" })}
-            onSyncFromWp={handleSyncFromWp}
-            onUploadExport={handleUploadExport}
-            onGenerate={handleGenerate}
-            onOpenEditor={handleOpenEditor}
-            onStopEditor={handleStopEditor}
-            onDelete={() => handleDelete(active.slug)}
-          />
+          route.kind === "compare" ? (
+            <CompareInsights
+              project={active}
+              onBack={() => navigate({ kind: "project", slug: active.slug })}
+            />
+          ) : (
+            <ProjectFlow
+              project={active}
+              onBack={() => navigate({ kind: "dashboard" })}
+              onCompare={() => navigate({ kind: "compare", slug: active.slug })}
+              onSyncFromWp={handleSyncFromWp}
+              onUploadExport={handleUploadExport}
+              onGenerate={handleGenerate}
+              onOpenEditor={handleOpenEditor}
+              onStopEditor={handleStopEditor}
+              onDelete={() => handleDelete(active.slug)}
+            />
+          )
         ) : (
-          <p className="muted">Loading project…</p>
+          <p className="text-studio-muted">Loading project…</p>
         ))}
     </DashboardShell>
   );

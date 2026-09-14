@@ -64,6 +64,10 @@ class Assets_Collector {
 				$stylesheets,
 				$this->collect_atomic_wind_caches( $ids )
 			);
+			$stylesheets = $this->merge_stylesheet_entries(
+				$stylesheets,
+				$this->collect_customizer_css()
+			);
 			$scripts = $this->ensure_otter_generator_script( $scripts, $ids );
 		}
 
@@ -320,14 +324,50 @@ class Assets_Collector {
 		if ( function_exists( 'wp_enqueue_style' ) && wp_style_is( 'wp-block-library', 'registered' ) ) {
 			wp_enqueue_style( 'wp-block-library' );
 		}
+		if ( function_exists( 'wp_enqueue_style' ) && wp_style_is( 'wp-block-library-theme', 'registered' ) ) {
+			wp_enqueue_style( 'wp-block-library-theme' );
+		}
+		if ( function_exists( 'wp_enqueue_style' ) && wp_style_is( 'classic-theme-styles', 'registered' ) ) {
+			wp_enqueue_style( 'classic-theme-styles' );
+		}
 
 		if ( $wp_styles && ! empty( $wp_styles->registered ) ) {
 			foreach ( $wp_styles->registered as $handle => $_obj ) {
-				if ( preg_match( '/^(neve|otter|atomic-wind|themeisle|wp-block)/i', (string) $handle ) ) {
+				if ( preg_match( '/^(neve|otter|atomic-wind|themeisle|wp-block|tmpcoder|spexo)/i', (string) $handle ) ) {
 					wp_enqueue_style( $handle );
 				}
 			}
 		}
+	}
+
+	/**
+	 * Export Appearance → Customize → Additional CSS.
+	 *
+	 * @return array[]
+	 */
+	private function collect_customizer_css() {
+		$css = '';
+		if ( function_exists( 'wp_get_custom_css' ) ) {
+			$css = (string) wp_get_custom_css();
+		}
+		if ( '' === trim( $css ) ) {
+			$css = (string) get_option( 'custom_css_post_content', '' );
+		}
+		if ( '' === trim( $css ) ) {
+			return array();
+		}
+
+		return array(
+			array(
+				'handle'      => 'wp-custom-css',
+				'src'         => null,
+				'deps'        => array(),
+				'ver'         => null,
+				'inlineAfter' => $css,
+				'media'       => 'all',
+				'source'      => 'customizer',
+			),
+		);
 	}
 
 	/**
@@ -407,7 +447,7 @@ class Assets_Collector {
 				}
 				// Prefer theme / otter / block / customizer dumps; skip tiny noise.
 				$keep = false;
-				if ( $id && preg_match( '/atomic-wind|otter|neve|global-styles|wp-block|customizer|core-block/i', $id ) ) {
+				if ( $id && preg_match( '/atomic-wind|otter|neve|global-styles|wp-block|customizer|wp-custom-css|core-block|tmpcoder/i', $id ) ) {
 					$keep = true;
 				}
 				if ( ! $keep && preg_match( '/--nv-|wp-block-atomic-wind|@tailwind|@layer\s+utilities/i', $css ) ) {

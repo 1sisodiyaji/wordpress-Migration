@@ -56,9 +56,12 @@ function entryHref(entry: PluginExportAssetRef, assetsRoot: string): string | nu
   if (entry.bundlePath && fileExists(assetsRoot, entry.bundlePath)) {
     return bundlePathToHref(entry.bundlePath);
   }
+  if (entry.bundleInline && fileExists(assetsRoot, entry.bundleInline)) {
+    return bundlePathToHref(entry.bundleInline);
+  }
   if (entry.src) {
     const rewritten = rewriteAssetUrls(`"${entry.src}"`).slice(1, -1);
-    if (rewritten.startsWith("/assets/wp-content/")) {
+    if (rewritten.startsWith("/assets/wp-content/") || rewritten.startsWith("/assets/wp-includes/")) {
       const rel = rewritten.replace("/assets/", "");
       if (fs.existsSync(path.join(assetsRoot, rel))) return rewritten;
     }
@@ -66,12 +69,29 @@ function entryHref(entry: PluginExportAssetRef, assetsRoot: string): string | nu
   return null;
 }
 
+/** Gutenberg frontend CSS from wp-includes that must ship with the canvas. */
+const ALLOWED_WP_INCLUDES_STYLE =
+  /wp-includes\/css\/dist\/block-library\/(style|theme)(\.min)?\.css|wp-includes\/css\/classic-themes(\.min)?\.css/i;
+
+const ALLOWED_WP_INCLUDES_STYLE_HANDLES = new Set([
+  "wp-block-library",
+  "wp-block-library-theme",
+  "classic-theme-styles",
+]);
+
 function isBlockedStyle(entry: PluginExportAssetRef): boolean {
   const handle = entry.handle ?? "";
   if (BLOCKED_STYLE_HANDLES.has(handle)) return true;
   if (handle.includes("admin")) return true;
+  // Never pull Gutenberg editor chrome into the static preview.
+  if (/block-editor|block-directory|wp-components|wp-preferences/i.test(handle)) return true;
   const src = entry.src ?? "";
-  return /wp-includes\//i.test(src);
+  if (ALLOWED_WP_INCLUDES_STYLE_HANDLES.has(handle)) return false;
+  if (ALLOWED_WP_INCLUDES_STYLE.test(src)) return false;
+  if (entry.bundlePath && /\/wp-includes\/css\/dist\/block-library\/(style|theme)/i.test(entry.bundlePath)) {
+    return false;
+  }
+  return /wp-includes\//i.test(src) || /\/wp-includes\//i.test(entry.bundlePath ?? "");
 }
 
 function isBlockedScript(entry: PluginExportAssetRef): boolean {

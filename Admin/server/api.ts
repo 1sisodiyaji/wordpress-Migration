@@ -30,6 +30,7 @@ import { getMigratedDataDir } from "../../Converter/shared/wp/config";
 import type { MigrationManifest, PluginExportAudit } from "../../Converter/shared/wp/types";
 import { getProjectDir } from "../../Converter/lib/scaffold";
 import { deleteProjectCompletely } from "./cleanup";
+import { comparisonSummary, fetchPageInsight } from "./page-insights";
 
 export interface ProjectAudit {
   unresolvedShortcodes: PluginExportAudit["unresolvedShortcodes"];
@@ -120,8 +121,12 @@ export function registerApi(app: Express): void {
 
   app.get("/api/projects", (_req, res) => {
     const registry = readRegistry();
-    const slugs = new Set(registry.map((s) => s.slug));
-    for (const meta of listAllStudioMeta()) slugs.add(meta.slug);
+    const slugs = new Set(
+      registry.map((s) => s.slug).filter((slug): slug is string => Boolean(slug)),
+    );
+    for (const meta of listAllStudioMeta()) {
+      if (meta.slug) slugs.add(meta.slug);
+    }
     res.json({ projects: [...slugs].map((slug) => projectPayload(slug)) });
   });
 
@@ -367,6 +372,45 @@ export function registerApi(app: Express): void {
       logs: readMigrationLog(slug),
       status: readMigrationStatus(slug),
       scrapeRunning: isScrapeRunning(slug),
+    });
+  });
+
+  app.get("/api/projects/:slug/compare-insights", async (req, res) => {
+    const slug = String(req.params.slug);
+    const meta = readStudioMeta(slug);
+    if (!meta) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+
+    const originalUrl = String(req.query.originalUrl ?? meta.url ?? "").trim();
+    const migratedUrl = String(
+      req.query.migratedUrl ?? (meta.editorPort ? editorUrlFor(meta.editorPort) : ""),
+    ).trim();
+
+    if (!originalUrl && !migratedUrl) {
+      res.status(400).json({
+        error: "Set a WordPress URL and start the migrated editor to compare pages.",
+      });
+      return;
+    }
+
+    const [original, migrated] = await Promise.all([
+      originalUrl
+        ? fetchPageInsight(originalUrl)
+        : Promise.resolve({ url: "", ok: false, error: "No original URL" }),
+      migratedUrl
+        ? fetchPageInsight(migratedUrl)
+        : Promise.resolve({ url: "", ok: false, error: "Migrated site not running" }),
+    ]);
+
+    res.json({
+      originalUrl: originalUrl || null,
+      migratedUrl: migratedUrl || null,
+      original,
+      migrated,
+      deltas: original.ok && migrated.ok ? comparisonSummary(original, migrated) : [],
+      measuredAt: new Date().toISOString(),
     });
   });
 }

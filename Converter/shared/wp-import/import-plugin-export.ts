@@ -126,6 +126,16 @@ function landBundle(
     pipelineStep("sync", `Synced wp-content → ${dest}`, slug);
   }
 
+  const bundleWpIncludes = path.join(bundle.root, "assets", "wp-includes");
+  if (fs.existsSync(bundleWpIncludes)) {
+    const dest = path.join(publicDir, "wp-includes");
+    if (fs.existsSync(dest)) fs.rmSync(dest, { recursive: true, force: true });
+    copyDir(bundleWpIncludes, dest);
+    assetsCopied = true;
+    cssJsCopied = true;
+    pipelineStep("sync", `Synced wp-includes (Gutenberg CSS) → ${dest}`, slug);
+  }
+
   const bundleInline = path.join(bundle.root, "assets", "inline");
   if (fs.existsSync(bundleInline)) {
     const dest = path.join(publicDir, "inline");

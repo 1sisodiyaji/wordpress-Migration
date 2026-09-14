@@ -2,72 +2,49 @@ interface Props {
   sql: File | null;
   wpContent: File | null;
   wpConfig: File | null;
-  onSqlChange: (file: File | null) => void;
-  onWpContentChange: (file: File | null) => void;
-  onWpConfigChange: (file: File | null) => void;
+  onSql: (f: File | null) => void;
+  onWpContent: (f: File | null) => void;
+  onWpConfig: (f: File | null) => void;
   compact?: boolean;
+  disabled?: boolean;
 }
-
-export type { Props as WpFileUploadsProps };
-export type WpUploadParts = {
-  sql?: File;
-  wpContent?: File;
-  wpConfig?: File;
-};
 
 export function WpFileUploads({
   sql,
   wpContent,
   wpConfig,
-  onSqlChange,
-  onWpContentChange,
-  onWpConfigChange,
+  onSql,
+  onWpContent,
+  onWpConfig,
   compact,
+  disabled,
 }: Props) {
   return (
-    <div className={`wp-uploads${compact ? " wp-uploads-compact" : ""}`}>
-      <p className="hint wp-uploads-intro">
-        Upload each part separately. You can add missing files later before clicking Start import.
+    <div className={`flex flex-col gap-3${compact ? " text-sm" : ""}`}>
+      <p className={`m-0 text-studio-muted${compact ? " text-xs" : " text-sm"}`}>
+        Optional WordPress dump files (SQL, wp-content archive, wp-config).
       </p>
-
-      <label className="wp-upload-row">
-        <span className="wp-upload-label">
-          <strong>1. Database</strong>
-          <small>.sql file</small>
-        </span>
-        <input
-          type="file"
-          accept=".sql"
-          onChange={(e) => onSqlChange(e.target.files?.[0] ?? null)}
-        />
-        {sql && <span className="wp-upload-name">{sql.name}</span>}
-      </label>
-
-      <label className="wp-upload-row">
-        <span className="wp-upload-label">
-          <strong>2. wp-content</strong>
-          <small>.zip of the wp-content folder</small>
-        </span>
-        <input
-          type="file"
-          accept=".zip,application/zip"
-          onChange={(e) => onWpContentChange(e.target.files?.[0] ?? null)}
-        />
-        {wpContent && <span className="wp-upload-name">{wpContent.name}</span>}
-      </label>
-
-      <label className="wp-upload-row">
-        <span className="wp-upload-label">
-          <strong>3. wp-config.php</strong>
-          <small>single PHP file</small>
-        </span>
-        <input
-          type="file"
-          accept=".php"
-          onChange={(e) => onWpConfigChange(e.target.files?.[0] ?? null)}
-        />
-        {wpConfig && <span className="wp-upload-name">{wpConfig.name}</span>}
-      </label>
+      {(
+        [
+          ["sql-file", "Database (.sql)", "SQL dump", sql, onSql],
+          ["wp-content-file", "wp-content (.zip)", "Themes, plugins, uploads", wpContent, onWpContent],
+          ["wp-config-file", "wp-config.php", "Optional config", wpConfig, onWpConfig],
+        ] as const
+      ).map(([id, label, hint, file, onFile]) => (
+        <label key={id} className="flex flex-col gap-1.5 rounded-xl border border-studio-border bg-studio-row p-3">
+          <span className="flex flex-col gap-0.5 text-studio-text">
+            <strong className="text-sm font-semibold">{label}</strong>
+            <small className="font-normal text-studio-muted">{hint}</small>
+          </span>
+          <input
+            id={id}
+            type="file"
+            disabled={disabled}
+            onChange={(e) => onFile(e.target.files?.[0] ?? null)}
+          />
+          {file && <span className="text-xs text-ok">{file.name}</span>}
+        </label>
+      ))}
     </div>
   );
 }

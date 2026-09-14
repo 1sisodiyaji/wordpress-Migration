@@ -17,14 +17,21 @@ export function StudioLogo({
   stacked = false,
 }: StudioLogoProps) {
   return (
-    <span className={`studio-logo${stacked ? " is-stacked" : ""}${className ? ` ${className}` : ""}`}>
+    <span className={`inline-flex items-center gap-2 leading-none${stacked ? " flex-col" : ""}${className ? ` ${className}` : ""}`}>
       <span
-        className={`studio-logo-mark${markClassName ? ` ${markClassName}` : ""}`}
+        className={`inline-grid shrink-0 place-items-center overflow-hidden rounded-full${markClassName ? ` ${markClassName}` : ""}`}
         style={{ width: size, height: size }}
       >
-        <img src="/Logo.png" alt="" width={size} height={size} draggable={false} />
+        <img
+          src="/Logo.png"
+          alt=""
+          width={size}
+          height={size}
+          draggable={false}
+          className="block size-full scale-[1.7] object-cover"
+        />
       </span>
-      {withWordmark ? <span className="studio-logo-word">{wordmark}</span> : null}
+      {withWordmark ? <span className="text-sm font-bold text-studio-text">{wordmark}</span> : null}
     </span>
   );
 }

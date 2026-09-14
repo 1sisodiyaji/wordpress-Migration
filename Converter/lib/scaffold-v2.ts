@@ -151,7 +151,7 @@ function copyImportedPublicIntoViteAssets(publicDir: string, viteAssetsDir: stri
 
   fs.mkdirSync(viteAssetsDir, { recursive: true });
 
-  const prefer = ["wp-content", "inline"];
+  const prefer = ["wp-content", "wp-includes", "inline"];
   const names = new Set([
     ...prefer.filter((n) => fs.existsSync(path.join(publicDir, n))),
     ...fs.readdirSync(publicDir).filter((n) => {
@@ -193,8 +193,9 @@ function copyTreeSafe(src: string, dest: string, depth = 0): void {
   if (stat.isDirectory()) {
     fs.mkdirSync(dest, { recursive: true });
     for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
-      // Skip leftover nested assets/assets folders from older buggy generates.
-      if (entry.name === "assets" && depth > 0) continue;
+      // Only skip nested Vite leftovers (public/assets/assets/...), not WP theme
+      // folders like themes/love-nature/assets/images/.
+      if (entry.name === "assets" && path.basename(src) === "assets") continue;
       const from = path.join(src, entry.name);
       const to = path.join(dest, entry.name);
       if (isSameOrInside(to, from) || isSameOrInside(from, to)) continue;

@@ -81,7 +81,9 @@ export function readRegistry(): SiteEntry[] {
     const raw = JSON.parse(fs.readFileSync(file, "utf8")) as {
       sites?: SiteEntry[];
     };
-    return raw.sites ?? [];
+    return (raw.sites ?? []).filter(
+      (s): s is SiteEntry => typeof s?.slug === "string" && s.slug.length > 0,
+    );
   } catch {
     return [];
   }

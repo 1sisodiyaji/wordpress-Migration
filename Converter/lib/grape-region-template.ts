@@ -1131,7 +1131,8 @@ export const GRAPE_EDITOR_CSS = `
 /* ── Floating pill toolbar ─────────────────────────────────────────── */
 .grape-toolbar--float {
   position: absolute;
-  top: 14px;
+  bottom: 14px;
+  top: auto;
   left: 50%;
   transform: translateX(-50%);
   z-index: 40;
@@ -1836,7 +1837,8 @@ export const GRAPE_EDITOR_CSS = `
     width: 240px;
   }
   .grape-toolbar--float {
-    top: 10px;
+    bottom: 10px;
+    top: auto;
     max-width: min(48rem, calc(100% - 1rem));
     padding: 0.28rem 0.4rem;
     gap: 0.2rem;
