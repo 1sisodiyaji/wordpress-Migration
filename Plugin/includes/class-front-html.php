@@ -184,10 +184,26 @@ class Front_Html {
 	public static function extract_content( $html ) {
 		$html = (string) $html;
 
-		// Block themes (FSE): the designed homepage lives in wp-site-blocks, not post_content.
+		// Block themes (FSE): designed homepage lives in wp-site-blocks.
+		// Prefer <main> only so layout header/footer are not duplicated in page body.
 		if ( preg_match( '/<div\b[^>]*class="[^"]*\bwp-site-blocks\b[^"]*"[^>]*>/i', $html, $m, PREG_OFFSET_CAPTURE ) ) {
 			$chunk = self::extract_balanced_div( $html, (int) $m[0][1] );
 			if ( $chunk && strlen( wp_strip_all_tags( $chunk ) ) > 40 ) {
+				if ( preg_match( '/<main\b[^>]*>/i', $chunk, $main_m, PREG_OFFSET_CAPTURE ) ) {
+					$main = self::extract_balanced_element( $chunk, (int) $main_m[0][1], 'main' );
+					if ( $main ) {
+						$inner = self::inner_html( $main );
+						if ( $inner && strlen( wp_strip_all_tags( $inner ) ) > 20 ) {
+							return $inner;
+						}
+						return $main;
+					}
+				}
+				// Fallback: strip header/footer template parts from the FSE tree.
+				$stripped = self::strip_fse_chrome( $chunk );
+				if ( $stripped && strlen( wp_strip_all_tags( $stripped ) ) > 40 ) {
+					return $stripped;
+				}
 				return $chunk;
 			}
 		}
@@ -289,26 +305,98 @@ class Front_Html {
 	 * @return string
 	 */
 	private static function extract_balanced_div( $html, $start ) {
+		return self::extract_balanced_element( $html, $start, 'div' );
+	}
+
+	/**
+	 * Slice a balanced element starting at $start (index of opening "<tag").
+	 *
+	 * @param string $html  Full HTML.
+	 * @param int    $start Offset of opening tag.
+	 * @param string $tag   Tag name (lowercase).
+	 * @return string
+	 */
+	private static function extract_balanced_element( $html, $start, $tag ) {
+		$tag   = strtolower( (string) $tag );
 		$len   = strlen( $html );
 		$depth = 0;
 		$i     = $start;
+		$open  = '<' . $tag;
+		$close = '</' . $tag . '>';
+		$close_len = strlen( $close );
 		while ( $i < $len ) {
-			$next_open  = stripos( $html, '<div', $i );
-			$next_close = stripos( $html, '</div>', $i );
+			$next_open  = stripos( $html, $open, $i );
+			$next_close = stripos( $html, $close, $i );
 			if ( false === $next_close ) {
 				break;
 			}
+			// Ensure next_open is a real tag boundary (not <mainx).
 			if ( false !== $next_open && $next_open < $next_close ) {
-				++$depth;
-				$i = $next_open + 4;
+				$after = $next_open + strlen( $open );
+				$ch    = $after < $len ? $html[ $after ] : '';
+				if ( '>' === $ch || ctype_space( $ch ) || '/' === $ch ) {
+					++$depth;
+					$i = $after;
+					continue;
+				}
+				$i = $after;
 				continue;
 			}
 			--$depth;
-			$i = $next_close + 6;
+			$i = $next_close + $close_len;
 			if ( 0 === $depth ) {
 				return trim( substr( $html, $start, $i - $start ) );
 			}
 		}
 		return '';
+	}
+
+	/**
+	 * Inner HTML of a balanced element string.
+	 *
+	 * @param string $element Full element markup.
+	 * @return string
+	 */
+	private static function inner_html( $element ) {
+		$element = (string) $element;
+		if ( ! preg_match( '/^<[^>]+>/', $element, $m ) ) {
+			return $element;
+		}
+		$close = strrpos( $element, '</' );
+		if ( false === $close || $close <= strlen( $m[0] ) ) {
+			return '';
+		}
+		return trim( substr( $element, strlen( $m[0] ), $close - strlen( $m[0] ) ) );
+	}
+
+	/**
+	 * Remove FSE header/footer template parts from a wp-site-blocks chunk.
+	 *
+	 * @param string $html FSE markup.
+	 * @return string
+	 */
+	private static function strip_fse_chrome( $html ) {
+		$html = (string) $html;
+		$patterns = array(
+			'/<header\b[^>]*class="[^"]*\bwp-block-template-part\b[^"]*"[^>]*>/i',
+			'/<footer\b[^>]*class="[^"]*\bwp-block-template-part\b[^"]*"[^>]*>/i',
+			'/<header\b[^>]*class="[^"]*\bsite-header\b[^"]*"[^>]*>/i',
+			'/<footer\b[^>]*class="[^"]*\bsite-footer\b[^"]*"[^>]*>/i',
+		);
+		foreach ( $patterns as $pattern ) {
+			for ( $n = 0; $n < 10; $n++ ) {
+				if ( ! preg_match( $pattern, $html, $m, PREG_OFFSET_CAPTURE ) ) {
+					break;
+				}
+				$start = (int) $m[0][1];
+				$tag   = strtolower( preg_replace( '/^<([a-z]+).*/i', '$1', $m[0][0] ) );
+				$el    = self::extract_balanced_element( $html, $start, $tag );
+				if ( ! $el ) {
+					break;
+				}
+				$html = substr( $html, 0, $start ) . substr( $html, $start + strlen( $el ) );
+			}
+		}
+		return trim( $html );
 	}
 }

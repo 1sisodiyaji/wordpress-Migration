@@ -93,6 +93,18 @@ export function grapePersistPlugin(projectRoot: string): Plugin {
               return;
             }
 
+            // Prefer on-disk grape-blocks.json when present (scaffold + editor saves).
+            const blocksPath = path.join(dataPagesDir, pageKey, "grape-blocks.json");
+            let grapeBlocks = page.grapeBlocks ?? null;
+            if (fs.existsSync(blocksPath)) {
+              try {
+                const fromDisk = readJson<unknown>(blocksPath);
+                if (Array.isArray(fromDisk) && fromDisk.length > 0) grapeBlocks = fromDisk;
+              } catch {
+                /* keep site.json */
+              }
+            }
+
             let layout: { headerHtml?: string; footerHtml?: string } | null = null;
             if (fs.existsSync(layoutJsonPath)) {
               layout = readJson(layoutJsonPath);
@@ -102,8 +114,8 @@ export function grapePersistPlugin(projectRoot: string): Plugin {
               ok: true,
               pageKey,
               contentHtml: page.contentHtml ?? "",
-              grapeBlocks: page.grapeBlocks ?? null,
-              contentMode: page.contentMode ?? "html",
+              grapeBlocks,
+              contentMode: grapeBlocks?.length ? "blocks" : (page.contentMode ?? "html"),
               canvasStyles: page.canvasStyles ?? site.canvasStyles ?? [],
               canvasScripts: page.canvasScripts ?? site.canvasScripts ?? [],
               exportFingerprint: site.exportFingerprint ?? site.slug ?? "",

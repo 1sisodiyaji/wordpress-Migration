@@ -224,6 +224,7 @@ export default function App() {
       subtitle={dashSubtitle}
       subtitleClassName={dashSubtitleClass}
       activeNav={route.kind === "dashboard" ? "projects" : "project"}
+      immersive={route.kind === "compare"}
       onHome={() => navigate({ kind: "dashboard" })}
       onTheme={switchTheme}
       isDark={isDark}

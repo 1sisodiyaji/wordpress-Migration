@@ -7,6 +7,8 @@ interface Props {
   subtitle?: string;
   subtitleClassName?: string;
   activeNav?: "projects" | "project";
+  /** Full-height content (no page chrome) — used by compare split view. */
+  immersive?: boolean;
   onHome: () => void;
   onTheme: () => void;
   isDark: boolean;
@@ -39,6 +41,7 @@ export function DashboardShell({
   subtitle,
   subtitleClassName,
   activeNav = "projects",
+  immersive = false,
   onHome,
   onTheme,
   isDark,
@@ -52,13 +55,15 @@ export function DashboardShell({
       className={cx(
         "grid min-h-screen grid-cols-1 gap-4 p-4 font-sans text-studio-text",
         "bg-[radial-gradient(900px_420px_at_12%_-10%,rgba(46,182,217,0.16),transparent_55%),radial-gradient(700px_380px_at_100%_0%,rgba(255,107,74,0.12),transparent_50%),var(--color-studio-bg)]",
-        "md:grid-cols-[15.5rem_1fr] md:gap-5",
+        !immersive && "md:grid-cols-[15.5rem_1fr] md:gap-5",
+        immersive && "h-screen max-h-screen overflow-hidden",
       )}
     >
       <aside
         className={cx(
           "flex flex-col gap-2.5 rounded-[1.75rem] bg-studio-surface p-3 shadow-studio",
           "md:sticky md:top-4 md:h-[calc(100vh-2rem)]",
+          immersive && "!hidden",
         )}
       >
         <button
@@ -116,23 +121,30 @@ export function DashboardShell({
         </div>
       </aside>
 
-      <div className="flex min-w-0 flex-col gap-3.5">
-        <header className="relative z-1 flex min-h-16 items-center justify-between gap-4 rounded-3xl bg-studio-surface px-5 py-4 shadow-studio">
-          <div className="hidden shrink-0" aria-hidden={!title}>
-            <StudioLogo size={22} />
-          </div>
-          <div className="min-w-0 flex-1">
-            {title ? (
-              <h1 className="m-0 text-[1.65rem] font-extrabold tracking-[-0.03em] text-studio-text">{title}</h1>
-            ) : null}
-            {subtitle ? (
-              <p className={cx("mt-0.5 mb-0 text-sm text-studio-muted", subtitleClassName)}>{subtitle}</p>
-            ) : null}
-          </div>
-          {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
-        </header>
+      <div
+        className={cx(
+          "flex min-w-0 flex-col gap-3.5",
+          immersive && "min-h-0 gap-0 md:h-[calc(100vh-2rem)]",
+        )}
+      >
+        {!immersive ? (
+          <header className="relative z-1 flex min-h-16 items-center justify-between gap-4 rounded-3xl bg-studio-surface px-5 py-4 shadow-studio">
+            <div className="hidden shrink-0" aria-hidden={!title}>
+              <StudioLogo size={22} />
+            </div>
+            <div className="min-w-0 flex-1">
+              {title ? (
+                <h1 className="m-0 text-[1.65rem] font-extrabold tracking-[-0.03em] text-studio-text">{title}</h1>
+              ) : null}
+              {subtitle ? (
+                <p className={cx("mt-0.5 mb-0 text-sm text-studio-muted", subtitleClassName)}>{subtitle}</p>
+              ) : null}
+            </div>
+            {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
+          </header>
+        ) : null}
 
-        <main className="flex-1 pb-10">{children}</main>
+        <main className={cx("flex-1", immersive ? "min-h-0 overflow-hidden pb-0" : "pb-10")}>{children}</main>
       </div>
     </div>
   );

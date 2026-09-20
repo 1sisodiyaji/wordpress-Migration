@@ -28,6 +28,11 @@ import {
   writeRewrittenPostCss,
   rewriteLinkedCssForBlocks,
 } from "./elementor-to-grape";
+import {
+  convertGutenbergDocument,
+  htmlToGrapeSections,
+  stripPageChrome,
+} from "./html-to-grape";
 import { assertValidAppTsx, buildAppTsx } from "./app-shell-template";
 import { buildGrapeRegionTsx, GRAPE_EDITOR_CSS } from "./grape-region-template";
 import {
@@ -210,9 +215,7 @@ function copyTreeSafe(src: string, dest: string, depth = 0): void {
 function writeGrapeBlocksStyle(projectAssetsDir: string): void {
   const file = path.join(projectAssetsDir, "inline", "styles", "grape-blocks.css");
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(
-    file,
-    `/* Base styles for Elementor → GrapeJS block conversion (Stage 3) */
+  let css = `/* Base styles for Elementor → GrapeJS block conversion (Stage 3) */
 *, *::before, *::after { box-sizing: border-box; }
 body { margin: 0; font-family: "Manrope", "Google Sans", system-ui, sans-serif; color: #202124; line-height: 1.5; }
 section, div { min-width: 0; }
@@ -221,6 +224,16 @@ a { color: inherit; }
 h1, h2, h3, h4, h5, h6 { margin: 0 0 0.5em; line-height: 1.2; }
 p { margin: 0 0 1em; }
 ul { margin: 0; padding: 0; }
+/* FSE/Gutenberg: vertical rhythm comes from spacers + layout rules, not UA/text defaults */
+:where(.wp-block-heading),
+:where(h1.wp-block-heading), :where(h2.wp-block-heading), :where(h3.wp-block-heading),
+:where(h4.wp-block-heading), :where(h5.wp-block-heading), :where(h6.wp-block-heading),
+:where(p.wp-block-paragraph),
+:where(.wp-block-buttons),
+:where(.wp-block-spacer) {
+  margin-block-start: 0;
+  margin-block-end: 0;
+}
 .gradient-text { background: linear-gradient(90deg, #FDCC4B, #282C31); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
 
 /* Logo / integration marquees (replaces miga_slide JS) */
@@ -279,9 +292,195 @@ ul { margin: 0; padding: 0; }
   font-size: var(--ekit-icon-size, var(--ekit-funfact-icon-size, 1em));
   line-height: 1;
 }
-`,
-    "utf8",
-  );
+
+/* ── Gutenberg / FSE canvas parity (navbar, align, images, footer) ── */
+
+/* Text alignment utilities (often missing from exported global-styles) */
+:root .has-text-align-center,
+.has-text-align-center { text-align: center !important; }
+:root .has-text-align-left,
+.has-text-align-left { text-align: left !important; }
+:root .has-text-align-right,
+.has-text-align-right { text-align: right !important; }
+:root .has-text-align-justify,
+.has-text-align-justify { text-align: justify !important; }
+
+/* Buttons row centering */
+.wp-block-buttons.is-content-justification-center {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.wp-block-buttons.is-content-justification-right { justify-content: flex-end; }
+.wp-block-buttons.is-content-justification-left { justify-content: flex-start; }
+
+/* Image roundness: variation --2/3/4 must win over base is-style-rounded (9999px) */
+:root :where(.wp-block-image.is-style-rounded.is-style-rounded--2 img),
+:root :where(.wp-block-image.is-style-rounded--2 img) {
+  border-radius: var(--wp--preset--spacing--20, 1.5rem) !important;
+}
+:root :where(.wp-block-image.is-style-rounded.is-style-rounded--3 img),
+:root :where(.wp-block-image.is-style-rounded--3 img) {
+  border-radius: var(--wp--preset--spacing--30, 2.5rem) !important;
+}
+:root :where(.wp-block-image.is-style-rounded.is-style-rounded--4 img),
+:root :where(.wp-block-image.is-style-rounded--4 img) {
+  border-radius: var(--wp--preset--spacing--40, 4rem) !important;
+}
+.wp-block-image img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+/*
+ * Navigation overlay: without block navigation CSS, open/close chrome + menu
+ * all show at once. Mirror WP desktop behavior (horizontal links, no overlay UI).
+ */
+.wp-block-navigation {
+  position: relative;
+}
+.wp-block-navigation .wp-block-navigation__responsive-container-open {
+  display: none;
+}
+.wp-block-navigation .wp-block-navigation__responsive-container-close {
+  display: none !important;
+}
+.wp-block-navigation .wp-block-navigation__responsive-container {
+  display: block !important;
+  position: static !important;
+  width: auto !important;
+  height: auto !important;
+  overflow: visible !important;
+  background: transparent !important;
+  padding: 0 !important;
+}
+.wp-block-navigation .wp-block-navigation__responsive-close,
+.wp-block-navigation .wp-block-navigation__responsive-dialog {
+  display: contents;
+}
+.wp-block-navigation .wp-block-navigation__responsive-container-content {
+  display: block !important;
+  position: static !important;
+  padding: 0 !important;
+}
+.wp-block-navigation .wp-block-navigation__container,
+.wp-block-navigation .wp-block-page-list {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.wp-block-navigation.is-vertical .wp-block-navigation__container,
+.wp-block-navigation.is-vertical.wp-block-navigation {
+  flex-direction: column;
+  align-items: flex-start;
+}
+.wp-block-navigation a {
+  text-decoration: none;
+}
+.site-header .wp-block-group.is-content-justification-space-between,
+header .wp-block-group.is-content-justification-space-between {
+  display: flex !important;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+}
+
+/* Footer: columns + stacked navs without absolute/overlay bleed */
+.site-footer,
+footer.wp-block-template-part,
+footer.site-footer {
+  position: relative;
+  z-index: 1;
+  clear: both;
+  overflow: visible;
+  isolation: isolate;
+}
+.site-footer .wp-block-columns,
+footer .wp-block-columns {
+  display: flex !important;
+  flex-wrap: wrap;
+  gap: 2rem;
+  align-items: flex-start;
+}
+.site-footer .wp-block-column,
+footer .wp-block-column {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+.site-footer .wp-block-navigation,
+footer .wp-block-navigation {
+  position: static !important;
+}
+.site-footer .wp-block-navigation .wp-block-navigation__responsive-container-open,
+.site-footer .wp-block-navigation .wp-block-navigation__responsive-container-close,
+footer .wp-block-navigation .wp-block-navigation__responsive-container-open,
+footer .wp-block-navigation .wp-block-navigation__responsive-container-close {
+  display: none !important;
+}
+.site-footer .wp-block-navigation.is-vertical .wp-block-navigation__container,
+footer .wp-block-navigation.is-vertical .wp-block-navigation__container {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+}
+.site-footer .wp-block-group.is-content-justification-space-between,
+footer .wp-block-group.is-content-justification-space-between {
+  display: flex !important;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 1.5rem;
+  width: 100%;
+}
+
+/* Collapse empty footer spacers/groups that Grape keeps as tall drop targets */
+.site-footer .wp-block-group:not(:has(*)),
+footer .wp-block-group:not(:has(*)),
+.site-footer .wp-block-column:not(:has(*)),
+footer .wp-block-column:not(:has(*)) {
+  display: none !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+/* Don’t let base list reset crush nav/footer menus */
+.wp-block-navigation ul,
+.wp-block-page-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+`;
+
+  // Append layout-gap overrides from core-block-supports so they always beat
+  // global-styles' default `:root :where(.is-layout-*) > * { margin-block: 1.2rem }`
+  // even if stylesheet order is wrong (HMR / cached link tags).
+  const coreSupports = path.join(projectAssetsDir, "inline", "styles", "core-block-supports.css");
+  if (fs.existsSync(coreSupports)) {
+    const core = fs.readFileSync(coreSupports, "utf8");
+    const rules = [...core.matchAll(/([^{}@]+)\{([^}]+)\}/g)]
+      .map((m) => ({ sel: m[1].trim(), body: m[2].trim() }))
+      .filter((r) => /margin-block/i.test(r.body));
+    if (rules.length) {
+      css += `\n/* FSE layout-gap: core-block-supports must beat global-styles */\n`;
+      css += `/* :root prefix beats :root :where(.is-layout-*) > * { margin-block: 1.2rem } */\n`;
+      for (const r of rules) {
+        css += `:root ${r.sel} { ${r.body} }\n`;
+      }
+    }
+  }
+
+  fs.writeFileSync(file, css, "utf8");
 }
 
 function resolveTemplateDocument(dataDir: string, templateId: string): ElementorNode[] | null {
@@ -299,17 +498,86 @@ function resolveTemplateDocument(dataDir: string, templateId: string): Elementor
   }
 }
 
-function loadGrapeBlocksForPage(siteSlug: string, pageKey: string): GrapeBlock[] | undefined {
+function writeJsonPretty(file: string, data: unknown): void {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`, "utf8");
+}
+
+function sectionFileSlug(block: GrapeBlock, index: number): string {
+  const raw =
+    block.name ||
+    block.classes?.find((c) => c.startsWith("wp-block-")) ||
+    block.tagName ||
+    `section-${index + 1}`;
+  const slug = String(raw)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 48);
+  return `${String(index + 1).padStart(2, "0")}-${slug || `section-${index + 1}`}`;
+}
+
+/** Write grape-blocks.json + per-section HTML under data/pages/{key}/ (project + migrated). */
+function writePageGrapeArtifacts(
+  projectDir: string,
+  siteSlug: string,
+  pageKey: string,
+  contentHtml: string,
+  grapeBlocks: GrapeBlock[] | null | undefined,
+): void {
+  const targets = [
+    path.join(projectDir, "data", "pages", pageKey),
+    path.join(getMigratedDataDir(siteSlug), "pages", pageKey),
+  ];
+
+  for (const pageDir of targets) {
+    fs.mkdirSync(pageDir, { recursive: true });
+    if (contentHtml?.trim()) {
+      fs.writeFileSync(path.join(pageDir, "rendered.html"), contentHtml, "utf8");
+    }
+
+    if (!Array.isArray(grapeBlocks) || grapeBlocks.length === 0) {
+      const stale = path.join(pageDir, "grape-blocks.json");
+      if (fs.existsSync(stale)) fs.unlinkSync(stale);
+      const sectionsDir = path.join(pageDir, "sections");
+      if (fs.existsSync(sectionsDir)) {
+        fs.rmSync(sectionsDir, { recursive: true, force: true });
+      }
+      continue;
+    }
+
+    writeJsonPretty(path.join(pageDir, "grape-blocks.json"), grapeBlocks);
+
+    const sectionsDir = path.join(pageDir, "sections");
+    fs.mkdirSync(sectionsDir, { recursive: true });
+    for (const existing of fs.readdirSync(sectionsDir)) {
+      fs.unlinkSync(path.join(sectionsDir, existing));
+    }
+    grapeBlocks.forEach((block, i) => {
+      const html =
+        typeof block.components === "string"
+          ? block.components
+          : Array.isArray(block.components)
+            ? JSON.stringify(block.components, null, 2)
+            : block.content ?? "";
+      const file = path.join(sectionsDir, `${sectionFileSlug(block, i)}.html`);
+      fs.writeFileSync(file, `${html}\n`, "utf8");
+    });
+  }
+}
+
+function loadGrapeBlocksForPage(
+  siteSlug: string,
+  pageKey: string,
+  preparedHtml?: string,
+): GrapeBlock[] | undefined {
   const dataDir = getMigratedDataDir(siteSlug);
   const rawPath = path.join(dataDir, "pages", pageKey, "raw.json");
   const metaPath = path.join(dataDir, "pages", pageKey, "meta.json");
-  if (!fs.existsSync(rawPath)) return undefined;
   const meta = fs.existsSync(metaPath)
     ? (JSON.parse(fs.readFileSync(metaPath, "utf8")) as { pageBuilder?: string })
     : {};
-  if (meta.pageBuilder !== "elementor") return undefined;
-  const tree = JSON.parse(fs.readFileSync(rawPath, "utf8")) as ElementorNode[];
-  if (!Array.isArray(tree) || tree.length === 0) return undefined;
+  const builder = (meta.pageBuilder ?? "").toLowerCase();
 
   type MenuLike = { slug?: string; items?: Array<{ title: string; url: string; parentId?: number }> };
   let menus: MenuLike[] = [];
@@ -322,10 +590,41 @@ function loadGrapeBlocksForPage(siteSlug: string, pageKey: string): GrapeBlock[]
     }
   }
 
-  return convertElementorDocument(tree, {
-    resolveTemplate: (id) => resolveTemplateDocument(dataDir, id),
-    resolveMenu: (slug) => menus.find((m) => m.slug === slug)?.items ?? null,
-  });
+  if (fs.existsSync(rawPath)) {
+    try {
+      const raw = JSON.parse(fs.readFileSync(rawPath, "utf8")) as unknown;
+
+      if (builder === "elementor" || (Array.isArray(raw) && raw[0] && typeof raw[0] === "object" && "elType" in (raw[0] as object))) {
+        const tree = raw as ElementorNode[];
+        if (Array.isArray(tree) && tree.length > 0) {
+          return convertElementorDocument(tree, {
+            resolveTemplate: (id) => resolveTemplateDocument(dataDir, id),
+            resolveMenu: (slug) => menus.find((m) => m.slug === slug)?.items ?? null,
+          });
+        }
+      }
+
+      if (
+        builder === "gutenberg" ||
+        builder === "block" ||
+        builder === "blocks" ||
+        (!builder && raw && typeof raw === "object" && Array.isArray((raw as { blocks?: unknown }).blocks))
+      ) {
+        const blocks = convertGutenbergDocument(raw);
+        if (blocks.length > 0) return blocks;
+      }
+    } catch {
+      /* fall through to HTML sections */
+    }
+  }
+
+  // FSE / theme HTML: split rendered body into section components.
+  if (preparedHtml && preparedHtml.trim()) {
+    const sections = htmlToGrapeSections(preparedHtml);
+    if (sections.length > 0) return sections;
+  }
+
+  return undefined;
 }
 
 function writeResponsiveCssFile(
@@ -399,9 +698,14 @@ function loadTemplateTreeByType(
   return null;
 }
 
-/** Blocks mode still needs Elementor/theme CSS so layout, buttons, and images match the site. */
+/** Blocks mode still needs Elementor/theme CSS so layout, buttons, and images match the site.
+ *  Keep core-block-supports after global-styles (WP order) and grape-blocks.css last
+ *  so FSE parity fixes (align/nav/radius/footer) win the cascade. */
 function blockModeCanvasStyles(fullStyles: string[]): string[] {
-  return [GRAPE_BLOCKS_CSS, ...fullStyles.filter((s) => s !== GRAPE_BLOCKS_CSS)];
+  const CORE_BLOCK_SUPPORTS = "/assets/inline/styles/core-block-supports.css";
+  const rest = fullStyles.filter((s) => s !== GRAPE_BLOCKS_CSS && s !== CORE_BLOCK_SUPPORTS);
+  const hasCore = fullStyles.includes(CORE_BLOCK_SUPPORTS);
+  return [...rest, ...(hasCore ? [CORE_BLOCK_SUPPORTS] : []), GRAPE_BLOCKS_CSS];
 }
 
 /** Extract <style> from Elementor library templates (nested shortcodes / logo carousels). */
@@ -504,7 +808,10 @@ function writeData(projectDir: string, site: PluginSite, elementorKitClasses: st
 
   const pages = site.pages.map((p) => {
     const canvas = pageCanvasAssets(site, p, assetsRoot);
-    const grapeBlocks = isElementor ? loadGrapeBlocksForPage(site.slug, p.key) : null;
+    const mirrored = mirrorRemoteMediaUrls(rewriteAssetUrls(p.contentHtml), assetsRoot);
+    const extracted = extractInlineElementorStyles(mirrored, assetsRoot, { postId: p.postId });
+    const preparedHtml = stripPageChrome(prepareGrapeHtmlForCanvas(extracted.html, assetsRoot));
+    const grapeBlocks = loadGrapeBlocksForPage(site.slug, p.key, preparedHtml) ?? null;
     const rawTree = isElementor ? loadRawElementorTree(site.slug, p.key) : null;
     const pageResponsiveHref =
       rawTree &&
@@ -521,13 +828,19 @@ function writeData(projectDir: string, site: PluginSite, elementorKitClasses: st
         buildElementorCustomCss(rawTree),
       );
 
-    const mirrored = mirrorRemoteMediaUrls(rewriteAssetUrls(p.contentHtml), assetsRoot);
-    const extracted = extractInlineElementorStyles(mirrored, assetsRoot, { postId: p.postId });
-    const preparedHtml = prepareGrapeHtmlForCanvas(extracted.html, assetsRoot);
     const htmlIsBlank = isExportHtmlBlank(preparedHtml);
     const hasBlocks = Array.isArray(grapeBlocks) && grapeBlocks.length > 0;
-    // Prefer rendered HTML when present; fall back to Elementor→blocks when HTML is empty.
-    const contentMode = !htmlIsBlank ? ("html" as const) : hasBlocks ? ("blocks" as const) : ("html" as const);
+    // Elementor: keep prior HTML-first policy. Gutenberg/FSE: prefer section blocks when built.
+    const contentMode =
+      isElementor
+        ? !htmlIsBlank
+          ? ("html" as const)
+          : hasBlocks
+            ? ("blocks" as const)
+            : ("html" as const)
+        : hasBlocks
+          ? ("blocks" as const)
+          : ("html" as const);
     pipelineInfo(
       `page "${p.key}" → mode=${contentMode}${hasBlocks ? ` blocks=${grapeBlocks!.length}` : ""}`,
       site.slug,
@@ -567,6 +880,11 @@ function writeData(projectDir: string, site: PluginSite, elementorKitClasses: st
       canvasScripts: canvas.scripts,
     };
   });
+
+  // Persist section trees as real files (not only embedded in site.json).
+  for (const p of pages) {
+    writePageGrapeArtifacts(projectDir, site.slug, p.key, p.contentHtml, p.grapeBlocks ?? null);
+  }
 
   const globalScripts = new Set<string>(site.globalScripts);
   for (const p of pages) {
@@ -697,14 +1015,19 @@ export function SiteNav() {
     path.join(layoutDir, "SiteHeader.tsx"),
     `import layout from "../../data/layout.json";
 
+/** Collapse multisite upload URLs to the exported flat /uploads/{yyyy}/{mm}/ tree. */
+function fixMediaUrls(html: string): string {
+  return html.replace(/(\\/assets\\/wp-content\\/uploads)\\/sites\\/\\d+\\//gi, "$1/");
+}
+
 /** Header HTML source from the WP export. Injected into each page canvas via GrapeRegion (\`site-header\`). */
 export function SiteHeader() {
   if (!layout.headerHtml?.trim()) return null;
-  return <div className="site-header" dangerouslySetInnerHTML={{ __html: layout.headerHtml }} />;
+  return <div className="site-header" dangerouslySetInnerHTML={{ __html: fixMediaUrls(layout.headerHtml) }} />;
 }
 
 export function getHeaderHtml(): string {
-  return layout.headerHtml?.trim() ?? "";
+  return fixMediaUrls(layout.headerHtml?.trim() ?? "");
 }
 
 export function getHeaderBlocks(): unknown[] | null {
@@ -719,14 +1042,19 @@ export function getHeaderBlocks(): unknown[] | null {
     path.join(layoutDir, "SiteFooter.tsx"),
     `import layout from "../../data/layout.json";
 
+/** Collapse multisite upload URLs to the exported flat /uploads/{yyyy}/{mm}/ tree. */
+function fixMediaUrls(html: string): string {
+  return html.replace(/(\\/assets\\/wp-content\\/uploads)\\/sites\\/\\d+\\//gi, "$1/");
+}
+
 /** Footer HTML source from the WP export. Injected into each page canvas via GrapeRegion (\`site-footer\`). */
 export function SiteFooter() {
   if (!layout.footerHtml?.trim()) return null;
-  return <div className="site-footer" dangerouslySetInnerHTML={{ __html: layout.footerHtml }} />;
+  return <div className="site-footer" dangerouslySetInnerHTML={{ __html: fixMediaUrls(layout.footerHtml) }} />;
 }
 
 export function getFooterHtml(): string {
-  return layout.footerHtml?.trim() ?? "";
+  return fixMediaUrls(layout.footerHtml?.trim() ?? "");
 }
 
 export function getFooterBlocks(): unknown[] | null {
@@ -741,15 +1069,59 @@ export function getFooterBlocks(): unknown[] | null {
     path.join(layoutDir, "SiteLayout.tsx"),
     `import type { ReactNode } from "react";
 import { SiteAssets } from "./SiteAssets";
+import { SiteHeader } from "./SiteHeader";
+import { SiteFooter } from "./SiteFooter";
 
 /**
- * Editor shell only. Header/footer are GrapeJS components injected into each
- * page canvas (see GrapeRegion) so styles match the WordPress export.
+ * Match classic WP theme main content shell (beauty-cosmetic-store / Bootstrap):
+ * .container > .row > .content-area > .site-main > article > .entry-content
+ * Without this, Spectra sections go full-bleed and lose side padding vs WP.
  */
-export function SiteLayout({ children }: { children: ReactNode }) {
+function ThemeContentShell({ children }: { children: ReactNode }) {
   return (
-    <div className="site-layout">
-      <SiteAssets />
+    <div className="container">
+      <div className="row">
+        <div className="content-area">
+          <div className="site-main module-border-wrap mb-4">
+            <article className="page type-page status-publish hentry">
+              <div className="entry-content">{children}</div>
+            </article>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * view — public site chrome (header + page + footer)
+ * edit — GrapeJS shell (header/footer live inside the canvas)
+ */
+export function SiteLayout({
+  children,
+  mode = "edit",
+  pageKey,
+}: {
+  children: ReactNode;
+  mode?: "view" | "edit";
+  pageKey?: string;
+}) {
+  if (mode === "view") {
+    return (
+      <div className="site-layout site-layout--view">
+        <SiteAssets pageKey={pageKey} />
+        <SiteHeader />
+        <main className="site-content site-content--view">
+          <ThemeContentShell>{children}</ThemeContentShell>
+        </main>
+        <SiteFooter />
+      </div>
+    );
+  }
+
+  return (
+    <div className="site-layout site-layout--edit">
+      <SiteAssets pageKey={pageKey} />
       <main className="site-content">{children}</main>
     </div>
   );
@@ -762,9 +1134,148 @@ export function SiteLayout({ children }: { children: ReactNode }) {
 function writeSiteAssets(projectDir: string): void {
   fs.writeFileSync(
     path.join(projectDir, "src", "components", "layout", "SiteAssets.tsx"),
-    `/** Canvas CSS must load only inside the GrapeJS iframe (canvas.styles). */
-export function SiteAssets() {
+    `import { useEffect, useMemo } from "react";
+import siteData from "../../data/site.json";
+
+const CORE_BLOCK_SUPPORTS = "/assets/inline/styles/core-block-supports.css";
+const GRAPE_BLOCKS = "/assets/inline/styles/grape-blocks.css";
+
+/** WP order: global-styles early, core-block-supports late (beats default block-gap). */
+function orderCanvasStyles(styles: string[]): string[] {
+  const rest = styles.filter((s) => s !== CORE_BLOCK_SUPPORTS && s !== GRAPE_BLOCKS);
+  return [
+    ...rest,
+    ...(styles.includes(CORE_BLOCK_SUPPORTS) ? [CORE_BLOCK_SUPPORTS] : []),
+    ...(styles.includes(GRAPE_BLOCKS) ? [GRAPE_BLOCKS] : []),
+  ];
+}
+
+/** Load exported WP/theme CSS (+ scripts) for public view pages. */
+export function SiteAssets({ pageKey }: { pageKey?: string }) {
+  const page = useMemo(
+    () => siteData.pages.find((p) => p.key === pageKey) ?? siteData.pages[0],
+    [pageKey],
+  );
+
+  const styles = useMemo(() => {
+    const set = new Set<string>([
+      ...((siteData as { canvasStyles?: string[] }).canvasStyles ?? []),
+      ...(page?.canvasStyles ?? []),
+      GRAPE_BLOCKS,
+    ]);
+    return orderCanvasStyles([...set]);
+  }, [page]);
+
+  const scripts = useMemo(() => {
+    const set = new Set<string>([
+      ...((siteData as { canvasScripts?: string[] }).canvasScripts ?? []),
+      ...(page?.canvasScripts ?? []),
+    ]);
+    return [...set];
+  }, [page]);
+
+  const themeSlug = useMemo(() => {
+    for (const href of styles) {
+      const m = href.match(/\\/wp-content\\/themes\\/([^/]+)\\//);
+      if (m?.[1]) return m[1];
+    }
+    return null;
+  }, [styles]);
+
+  useEffect(() => {
+    // Drop previous site stylesheets so order can be corrected after HMR / site.json updates.
+    document.querySelectorAll('link[data-site-asset="1"]').forEach((n) => n.remove());
+
+    for (const href of styles) {
+      if (!href) continue;
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = href;
+      link.setAttribute("data-site-asset", "1");
+      document.head.appendChild(link);
+    }
+
+    for (const src of scripts) {
+      if (!src) continue;
+      const existing = document.querySelector(\`script[data-site-asset="1"][src="\${src}"]\`);
+      if (existing) continue;
+      const script = document.createElement("script");
+      script.src = src;
+      script.defer = true;
+      script.setAttribute("data-site-asset", "1");
+      document.body.appendChild(script);
+    }
+  }, [styles, scripts]);
+
+  // Theme body classes — Astra scopes header breakpoints; classic themes need wp-theme-* too.
+  useEffect(() => {
+    const root = document.body;
+    const isAstra = themeSlug === "astra" || styles.some((s) => s.includes("/themes/astra/"));
+    const base = isAstra
+      ? ["wp-theme-astra", "ast-plain-container", "ast-no-sidebar", "ast-inherit-site-logo-transparent"]
+      : themeSlug
+        ? [\`wp-theme-\${themeSlug}\`, \`theme-\${themeSlug}\`, "wp-embed-responsive"]
+        : ["wp-embed-responsive"];
+
+    for (const c of base) root.classList.add(c);
+
+    if (!isAstra) {
+      return () => {
+        for (const c of base) root.classList.remove(c);
+      };
+    }
+
+    const syncBreakpoint = () => {
+      // Matches Astra's common header breakpoint (~921px).
+      const desktop = window.matchMedia("(min-width: 922px)").matches;
+      root.classList.toggle("ast-desktop", desktop);
+      root.classList.toggle("ast-header-break-point", !desktop);
+      root.classList.toggle("ast-mouse-clicked", false);
+    };
+    syncBreakpoint();
+    window.addEventListener("resize", syncBreakpoint);
+    return () => {
+      window.removeEventListener("resize", syncBreakpoint);
+      for (const c of base) root.classList.remove(c);
+      root.classList.remove("ast-desktop", "ast-header-break-point");
+    };
+  }, [themeSlug, styles]);
+
   return null;
+}
+`,
+    "utf8",
+  );
+
+  fs.writeFileSync(
+    path.join(projectDir, "src", "components", "PageView.tsx"),
+    `import { useMemo } from "react";
+import siteData from "../data/site.json";
+
+/** Collapse multisite upload URLs to the exported flat /uploads/{yyyy}/{mm}/ tree. */
+function fixMediaUrls(html: string): string {
+  return html.replace(/(\\/assets\\/wp-content\\/uploads)\\/sites\\/\\d+\\//gi, "$1/");
+}
+
+/**
+ * Public (non-editor) render of a migrated page body.
+ * Header/footer come from SiteLayout; body from site.json contentHtml.
+ */
+export function PageView({ pageKey }: { pageKey: string }) {
+  const page = useMemo(
+    () => siteData.pages.find((p) => p.key === pageKey) ?? siteData.pages[0],
+    [pageKey],
+  );
+
+  const html = fixMediaUrls(page?.contentHtml?.trim() || "<p>Empty page</p>");
+
+  return (
+    <div
+      className="page-view"
+      data-page-key={pageKey}
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
 }
 `,
     "utf8",
@@ -952,19 +1463,42 @@ createRoot(document.getElementById("root")!).render(<App />);
     path.join(projectDir, "src", "App.css"),
     `* { box-sizing: border-box; }
 body { margin: 0; font-family: system-ui, sans-serif; }
-html, body, #root { height: 100%; }
+html, body, #root { min-height: 100%; }
 
 .app-shell {
   display: flex;
   flex-direction: column;
-  height: 100vh;
-  overflow: hidden;
   position: relative;
 }
+.app-shell.is-edit {
+  height: 100vh;
+  overflow: hidden;
+}
+.app-shell.is-view {
+  min-height: 100vh;
+  overflow: visible;
+}
 
-.app-main { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
-.site-layout { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; }
-.site-content { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.app-shell.is-edit .app-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.app-shell.is-view .app-main {
+  display: block;
+  overflow: visible;
+}
+
+.site-layout { display: flex; flex-direction: column; min-width: 0; }
+.site-layout--edit { flex: 1; min-height: 0; }
+.site-layout--view { min-height: 100vh; }
+
+.site-content { display: flex; flex-direction: column; }
+.site-layout--edit .site-content { flex: 1; min-height: 0; }
+.site-content--view { display: block; flex: 1; }
+.page-view { min-width: 0; }
 
 .grape-region {
   flex: 1;
@@ -974,6 +1508,31 @@ html, body, #root { height: 100%; }
   flex-direction: column;
 }
 ${GRAPE_EDITOR_CSS}
+
+/* Floating Edit / View shortcuts */
+.edit-page-fab,
+.view-page-fab {
+  position: fixed;
+  right: 20px;
+  bottom: 84px;
+  z-index: 70;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 3.25rem;
+  padding: 0.65rem 1rem;
+  border-radius: 999px;
+  background: #0f172a;
+  color: #f8fafc;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  text-decoration: none;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.35);
+}
+.edit-page-fab:hover,
+.view-page-fab:hover { background: #1e293b; }
+.view-page-fab { background: #134e4a; }
+.view-page-fab:hover { background: #0f766e; }
 
 /* Floating Pages button (bottom-right) */
 .pages-fab {
@@ -1088,6 +1647,12 @@ ${GRAPE_EDITOR_CSS}
   overflow: auto;
   flex: 1;
 }
+.pages-nav-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.35rem;
+  align-items: stretch;
+}
 .pages-nav a {
   display: flex;
   flex-direction: column;
@@ -1110,6 +1675,20 @@ ${GRAPE_EDITOR_CSS}
   border-color: #2563eb;
   color: #fff;
 }
+.pages-nav-edit {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  justify-content: center;
+  width: auto !important;
+  padding: 0.55rem 0.7rem !important;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #99f6e4 !important;
+  background: #115e59 !important;
+  border-radius: 6px;
+}
+.pages-nav-edit:hover { background: #0f766e !important; }
 .pages-nav-title { font-weight: 600; }
 .pages-nav-path {
   font-size: 0.7rem;

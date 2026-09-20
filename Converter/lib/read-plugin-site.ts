@@ -9,6 +9,7 @@ import type {
 import { readAssetManifest, resolveCanvasScripts, resolveSiteStyles } from "./asset-manifest";
 import { collectCanvasStyles } from "./grape-prep";
 import { convertElementorDocument, type ElementorNode, type GrapeBlock } from "./elementor-to-grape";
+import { stripPageChrome } from "./html-to-grape";
 
 /**
  * Prefer Projects/{slug}/public; if missing (common when data dir is a junction to
@@ -122,6 +123,7 @@ export function readPluginSite(slug: string): PluginSite {
     } else if (fs.existsSync(flatPath)) {
       contentHtml = fs.readFileSync(flatPath, "utf8");
     }
+    contentHtml = stripPageChrome(contentHtml);
 
     pages.push({
       key,
@@ -389,7 +391,7 @@ function collectBlockThemeCanvasStyles(assetsRoot: string): string[] {
   if (!fs.existsSync(wpRoot)) {
     // Still include inline dumps below.
   } else {
-    // Themes (Neve style-main-new.min.css, Spexo assets/css, etc.)
+    // Themes (Neve style-main-new.min.css, Spexo assets/css, Astra assets/css/minified, etc.)
     const themesRoot = path.join(wpRoot, "themes");
     if (fs.existsSync(themesRoot)) {
       for (const theme of fs.readdirSync(themesRoot)) {
@@ -402,9 +404,22 @@ function collectBlockThemeCanvasStyles(assetsRoot: string): string[] {
         }
         const themeCssDir = path.join(themeDir, "assets", "css");
         if (fs.existsSync(themeCssDir)) {
-          for (const file of fs.readdirSync(themeCssDir).sort()) {
-            if (!file.endsWith(".css")) continue;
-            styles.push(`/assets/wp-content/themes/${theme}/assets/css/${file}`);
+          // Flat files + common Astra/Neve subfolders (minified / unminified).
+          const cssDirs = [
+            themeCssDir,
+            path.join(themeCssDir, "minified"),
+            path.join(themeCssDir, "unminified"),
+          ];
+          for (const dir of cssDirs) {
+            if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) continue;
+            for (const file of fs.readdirSync(dir).sort()) {
+              if (!file.endsWith(".css")) continue;
+              const relFromTheme = path
+                .relative(themeDir, path.join(dir, file))
+                .split(path.sep)
+                .join("/");
+              styles.push(`/assets/wp-content/themes/${theme}/${relFromTheme}`);
+            }
           }
         }
       }
@@ -422,13 +437,24 @@ function collectBlockThemeCanvasStyles(assetsRoot: string): string[] {
   }
 
   // Inline dumps from export (global-styles / theme vars / customizer).
+  // WP loads global-styles first, then core-block-supports last so per-container
+  // layout gap rules (margin-block: 0 / spacing presets) win over the default
+  // `:root :where(.is-layout-*) > * { margin-block: 1.2rem }` — alphabetical
+  // sort alone puts core-block-supports *before* global-styles and inflates gaps.
   const inlineDir = path.join(assetsRoot, "inline", "styles");
   if (fs.existsSync(inlineDir)) {
-    for (const file of fs.readdirSync(inlineDir).sort()) {
-      if (!file.endsWith(".css")) continue;
-      // Prefer otter/neve/atomic/global; skip elementor leftovers if any.
-      if (/elementor/i.test(file)) continue;
-      if (/^admin-bar\.css$/i.test(file)) continue;
+    const inlineFiles = fs
+      .readdirSync(inlineDir)
+      .sort()
+      .filter((file) => {
+        if (!file.endsWith(".css")) return false;
+        if (/elementor/i.test(file)) return false;
+        if (/^admin-bar\.css$/i.test(file)) return false;
+        return true;
+      });
+    const coreSupports = inlineFiles.filter((f) => f === "core-block-supports.css");
+    const rest = inlineFiles.filter((f) => f !== "core-block-supports.css");
+    for (const file of [...rest, ...coreSupports]) {
       styles.push(`/assets/inline/styles/${file}`);
     }
   }
