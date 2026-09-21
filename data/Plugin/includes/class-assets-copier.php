@@ -64,6 +64,12 @@ class Assets_Copier {
 			$this->copy_otter_runtime_assets();
 		}
 
+		// Always stage core Gutenberg CSS. FSE headers/navbars use wp-block-navigation
+		// even when site-level builder detection is classic/elementor, and manifest
+		// copy of /wp-includes/blocks/*/style.min.css can miss when the file was
+		// only referenced (src set, no inline dump).
+		$this->copy_core_block_library_css();
+
 		return array(
 			'copied'   => $this->copied_files,
 			'warnings' => $this->warnings,
@@ -153,10 +159,14 @@ class Assets_Copier {
 						if ( $this->writer->copy( $source, $dest ) ) {
 							$entry['bundlePath'] = $dest;
 							$this->copied_files++;
+						} else {
+							$this->warnings[] = sprintf( 'Failed to copy wp-includes stylesheet: %s', $src );
 						}
 					} else {
 						$this->warnings[] = sprintf( 'wp-includes stylesheet missing on disk: %s', $src );
 					}
+				} elseif ( $includes_rel && preg_match( '#^blocks/#', $includes_rel ) ) {
+					$this->warnings[] = sprintf( 'Skipped wp-includes block stylesheet (not allowed): %s', $src );
 				}
 			}
 		}
@@ -354,11 +364,13 @@ class Assets_Copier {
 		}
 
 		$this->copy_rel_list( array_values( array_unique( $rels ) ) );
-		$this->copy_core_block_library_css();
+		// copy_core_block_library_css() is also invoked from copy() for all builders.
 	}
 
 	/**
 	 * Always stage Gutenberg core block-library CSS from wp-includes.
+	 * Includes the bundled library CSS plus per-block frontend styles
+	 * (image, group, columns, cover, gallery…) used for section layouts.
 	 */
 	private function copy_core_block_library_css() {
 		$files = array(
@@ -366,6 +378,8 @@ class Assets_Copier {
 			'css/dist/block-library/style.css',
 			'css/dist/block-library/theme.min.css',
 			'css/dist/block-library/theme.css',
+			'css/dist/block-library/common.min.css',
+			'css/dist/block-library/common.css',
 			'css/classic-themes.min.css',
 			'css/classic-themes.css',
 		);
@@ -377,6 +391,54 @@ class Assets_Copier {
 			$dest = 'assets/wp-includes/' . $rel;
 			if ( $this->writer->copy( $source, $dest ) ) {
 				$this->copied_files++;
+			}
+		}
+
+		// Per-block frontend CSS (WP 5.9+ when separate block assets are enabled).
+		$blocks_root = ABSPATH . 'wp-includes/blocks';
+		if ( is_dir( $blocks_root ) ) {
+			$wanted = array(
+				'image',
+				'gallery',
+				'cover',
+				'group',
+				'columns',
+				'column',
+				'media-text',
+				'heading',
+				'paragraph',
+				'buttons',
+				'button',
+				'separator',
+				'spacer',
+				'quote',
+				'list',
+				'table',
+				'video',
+				'audio',
+				'embed',
+				'pullquote',
+				'site-logo',
+				'site-title',
+				'navigation',
+				'page-list',
+				'post-title',
+				'post-featured-image',
+				'post-content',
+				'query',
+				'template-part',
+			);
+			foreach ( $wanted as $block ) {
+				foreach ( array( 'style.min.css', 'style.css', 'theme.min.css', 'theme.css' ) as $name ) {
+					$source = $blocks_root . '/' . $block . '/' . $name;
+					if ( ! is_readable( $source ) ) {
+						continue;
+					}
+					$dest = 'assets/wp-includes/blocks/' . $block . '/' . $name;
+					if ( $this->writer->copy( $source, $dest ) ) {
+						$this->copied_files++;
+					}
+				}
 			}
 		}
 	}
@@ -469,7 +531,10 @@ class Assets_Copier {
 		if ( preg_match( '#block-library/(editor|reset)#', $rel ) ) {
 			return false;
 		}
-		if ( preg_match( '#css/dist/block-library/(style|theme)(\.min)?\.css$#', $rel ) ) {
+		if ( preg_match( '#css/dist/block-library/(style|theme|common)(\.min)?\.css$#', $rel ) ) {
+			return true;
+		}
+		if ( preg_match( '#blocks/[a-z0-9-]+/(style|theme)(\.min)?\.css$#', $rel ) ) {
 			return true;
 		}
 		if ( preg_match( '#css/classic-themes(\.min)?\.css$#', $rel ) ) {

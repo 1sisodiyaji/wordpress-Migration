@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import type { Project } from "../api";
 import { fetchCompareInsights, type CompareInsightsResponse, type PageInsight } from "../api";
 import { Button } from "./ui";
@@ -27,6 +27,14 @@ function riskTone(label?: PageInsight["clsRiskLabel"]): string {
   return "bg-ok-soft text-ok";
 }
 
+function builderTone(id?: string): string {
+  if (id === "elementor") return "bg-coral-soft text-coral";
+  if (id === "gutenberg") return "bg-teal-soft text-teal-ink";
+  if (id === "classic") return "bg-navy-soft text-navy";
+  if (id === "grapejs") return "bg-navy-soft text-navy";
+  return "bg-studio-row text-studio-muted";
+}
+
 function MetricCard({
   label,
   value,
@@ -48,29 +56,27 @@ function MetricCard({
 }
 
 function SplitPane({
-  side,
   title,
   url,
   badge,
   loadMs,
   onLoadMs,
+  widthPct,
 }: {
-  side: "left" | "right";
   title: string;
   url: string | null;
   badge: string;
   loadMs: number | null;
   onLoadMs: (ms: number) => void;
+  widthPct?: number;
 }) {
   const [startedAt] = useState(() => Date.now());
   const [failed, setFailed] = useState(false);
 
   return (
     <section
-      className={cx(
-        "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-studio-surface",
-        side === "left" ? "border-r border-studio-border" : null,
-      )}
+      className="relative flex min-h-0 min-w-0 flex-col overflow-hidden bg-studio-surface"
+      style={widthPct != null ? { width: `${widthPct}%`, flex: "none" } : { flex: "1 1 0%" }}
     >
       <header className="flex shrink-0 items-center gap-2 border-b border-studio-border bg-[color-mix(in_srgb,var(--color-studio-row)_55%,var(--color-studio-surface))] px-3 py-2">
         <span className="flex items-center gap-1.5 pr-1" aria-hidden="true">
@@ -78,12 +84,7 @@ function SplitPane({
           <span className="size-2.5 rounded-full bg-[#febc2e]" />
           <span className="size-2.5 rounded-full bg-[#28c840]" />
         </span>
-        <span
-          className={cx(
-            "rounded-full px-2 py-0.5 text-[0.65rem] font-bold tracking-wide uppercase",
-            side === "left" ? "bg-navy-soft text-navy" : "bg-teal-soft text-teal-ink",
-          )}
-        >
+        <span className="rounded-full bg-navy-soft px-2 py-0.5 text-[0.65rem] font-bold tracking-wide text-navy uppercase">
           {badge}
         </span>
         <div className="min-w-0 flex-1">
@@ -146,7 +147,15 @@ function SplitPane({
   );
 }
 
-function InsightBlock({ label, insight }: { label: string; insight: PageInsight | null }) {
+function InsightBlock({
+  label,
+  insight,
+  editor,
+}: {
+  label: string;
+  insight: PageInsight | null;
+  editor?: { id: string; label: string };
+}) {
   if (!insight) {
     return (
       <div>
@@ -174,6 +183,17 @@ function InsightBlock({ label, insight }: { label: string; insight: PageInsight 
         <span className={cx("rounded-full px-2.5 py-1 text-[0.7rem] font-bold capitalize", riskTone(insight.clsRiskLabel))}>
           CLS {insight.clsRiskLabel}
         </span>
+        {editor ? (
+          <span
+            className={cx(
+              "rounded-full px-2.5 py-1 text-[0.7rem] font-bold tracking-wide",
+              builderTone(editor.id),
+            )}
+            title={`${editor.label} editor`}
+          >
+            {editor.label}
+          </span>
+        ) : null}
       </div>
       {insight.title ? <p className="mt-0 mb-3 text-sm text-studio-muted">{insight.title}</p> : null}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -220,6 +240,8 @@ function ResultsPopup({
 
   if (!open) return null;
 
+  const builder = report?.pageBuilder;
+
   return (
     <div
       className="fixed inset-0 z-[120] grid place-items-center bg-black/40 p-4 backdrop-blur-[6px] animate-[compare-fade_180ms_ease-out]"
@@ -238,12 +260,25 @@ function ResultsPopup({
             <h2 id={titleId} className="m-0 text-lg font-extrabold tracking-tight">
               Compare results
             </h2>
-            <p className="mt-0.5 mb-0 text-xs text-studio-muted">
-              {report?.measuredAt
-                ? `Measured ${new Date(report.measuredAt).toLocaleString()}`
-                : busy
-                  ? "Measuring…"
-                  : "Insights for original vs migrated"}
+            <p className="mt-0.5 mb-0 flex flex-wrap items-center gap-2 text-xs text-studio-muted">
+              <span>
+                {report?.measuredAt
+                  ? `Measured ${new Date(report.measuredAt).toLocaleString()}`
+                  : busy
+                    ? "Measuring…"
+                    : "Insights for original vs migrated"}
+              </span>
+              {builder ? (
+                <span
+                  className={cx(
+                    "inline-flex items-center rounded-full px-2.5 py-0.5 text-[0.68rem] font-bold",
+                    builderTone(builder.id),
+                  )}
+                  title={`Detected from export ${builder.source}`}
+                >
+                  Editor: {builder.label}
+                </span>
+              ) : null}
             </p>
           </div>
           <Button type="button" variant="outline" size="sm" disabled={busy} onClick={onRefresh}>
@@ -268,6 +303,24 @@ function ResultsPopup({
 
           {busy && !report ? (
             <p className="m-0 text-sm text-studio-muted">Collecting load & CLS insights…</p>
+          ) : null}
+
+          {builder ? (
+            <section className="mb-5 rounded-[1.25rem] bg-studio-row px-4 py-3">
+              <p className="m-0 text-[0.72rem] font-semibold tracking-wide text-studio-muted uppercase">
+                Source page builder
+              </p>
+              <p className="mt-1 mb-0 text-base font-extrabold tracking-tight">{builder.label}</p>
+              <p className="mt-1 mb-0 text-xs text-studio-muted">
+                {builder.id === "gutenberg"
+                  ? "Block editor (Gutenberg / FSE). Section CSS comes from wp-block-library + theme styles."
+                  : builder.id === "elementor"
+                    ? "Elementor page builder. Kit/post CSS and widget assets drive layout."
+                    : builder.id === "classic"
+                      ? "Classic / theme templates (may still include Gutenberg blocks on some pages)."
+                      : "Builder could not be detected from the export manifest."}
+              </p>
+            </section>
           ) : null}
 
           {report?.deltas && report.deltas.length > 0 ? (
@@ -304,8 +357,20 @@ function ResultsPopup({
           ) : null}
 
           <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-            <InsightBlock label="Original" insight={report?.original ?? null} />
-            <InsightBlock label="Migrated" insight={report?.migrated ?? null} />
+            <InsightBlock
+              label="Original"
+              insight={report?.original ?? null}
+              editor={
+                builder && builder.id !== "unknown"
+                  ? { id: builder.id, label: builder.label }
+                  : undefined
+              }
+            />
+            <InsightBlock
+              label="Migrated"
+              insight={report?.migrated ?? null}
+              editor={{ id: "grapejs", label: "GrapeJS" }}
+            />
           </div>
         </div>
       </div>
@@ -325,7 +390,19 @@ export function CompareInsights({ project, onBack }: Props) {
   const [origLoadMs, setOrigLoadMs] = useState<number | null>(null);
   const [migLoadMs, setMigLoadMs] = useState<number | null>(null);
   const [resultsOpen, setResultsOpen] = useState(false);
+  const [leftPct, setLeftPct] = useState(50);
+  const [dragging, setDragging] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(false);
+  const splitRef = useRef<HTMLDivElement | null>(null);
   const titleId = useId();
+
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 768px)");
+    const apply = () => setIsDesktop(mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, []);
 
   const runReport = useCallback(async () => {
     setBusy(true);
@@ -347,9 +424,40 @@ export function CompareInsights({ project, onBack }: Props) {
     void runReport();
   }, [runReport]);
 
+  const onResizePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const el = splitRef.current;
+    if (!el) return;
+    setDragging(true);
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+
+  const onResizePointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!dragging) return;
+    const el = splitRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const next = ((e.clientX - rect.left) / rect.width) * 100;
+    setLeftPct(Math.min(78, Math.max(22, next)));
+  };
+
+  const onResizePointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
+    setDragging(false);
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      /* already released */
+    }
+  };
+
   const displayName = meta?.name ?? project.slug;
   const deltaCount = report?.deltas?.length ?? 0;
-  const dockHint = busy ? "Measuring…" : deltaCount > 0 ? `${deltaCount} metrics` : "Insights";
+  const builderLabel = report?.pageBuilder?.label;
+  const dockHint = busy
+    ? "Measuring…"
+    : [builderLabel, deltaCount > 0 ? `${deltaCount} metrics` : null].filter(Boolean).join(" · ") ||
+      "Insights";
 
   return (
     <div className="relative flex h-full min-h-[70vh] flex-col overflow-hidden rounded-[1.5rem] bg-studio-surface shadow-studio md:min-h-0">
@@ -365,7 +473,10 @@ export function CompareInsights({ project, onBack }: Props) {
         </Button>
         <div className="min-w-0 flex-1">
           <h1 className="m-0 truncate text-sm font-extrabold tracking-tight">{displayName}</h1>
-          <p className="m-0 truncate text-[0.7rem] text-studio-muted">Split compare · original vs migrated</p>
+          <p className="m-0 truncate text-[0.7rem] text-studio-muted">
+            Split compare · original vs migrated
+            {builderLabel ? ` · ${builderLabel}` : ""}
+          </p>
         </div>
         {!originalUrl || !migratedUrl ? (
           <span className="hidden rounded-full bg-coral-soft px-2.5 py-1 text-[0.65rem] font-bold text-coral sm:inline">
@@ -374,29 +485,72 @@ export function CompareInsights({ project, onBack }: Props) {
         ) : null}
       </div>
 
-      <div className="relative flex min-h-0 flex-1 flex-col md:flex-row">
+      <div
+        ref={splitRef}
+        className={cx(
+          "relative flex min-h-0 flex-1 flex-col md:flex-row",
+          dragging && "select-none",
+        )}
+      >
         <SplitPane
-          side="left"
           title="Original WordPress"
           badge="Source"
           url={originalUrl}
           loadMs={origLoadMs}
           onLoadMs={setOrigLoadMs}
+          widthPct={isDesktop ? leftPct : undefined}
         />
+
+        {/* Drag handle — desktop only */}
+        <div className={cx("relative z-20 hidden w-0 shrink-0 md:block", dragging ? "cursor-col-resize" : null)}>
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-valuenow={Math.round(leftPct)}
+            aria-valuemin={22}
+            aria-valuemax={78}
+            aria-label="Resize compare panes"
+            tabIndex={0}
+            className="absolute top-0 bottom-0 left-1/2 z-30 flex w-3 -translate-x-1/2 cursor-col-resize touch-none items-center justify-center"
+            onPointerDown={onResizePointerDown}
+            onPointerMove={onResizePointerMove}
+            onPointerUp={onResizePointerUp}
+            onPointerCancel={onResizePointerUp}
+            onDoubleClick={() => setLeftPct(50)}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowLeft") setLeftPct((v) => Math.max(22, v - 2));
+              if (e.key === "ArrowRight") setLeftPct((v) => Math.min(78, v + 2));
+            }}
+          >
+            <span
+              className={cx(
+                "h-full w-px bg-[color-mix(in_srgb,var(--color-studio-border)_80%,transparent)]",
+                dragging && "bg-coral",
+              )}
+            />
+            <span
+              className={cx(
+                "absolute grid size-7 place-items-center rounded-full border border-studio-border bg-studio-surface text-studio-muted shadow-studio",
+                dragging && "border-coral bg-coral text-white",
+              )}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <rect x="7" y="5" width="2.5" height="14" rx="1" />
+                <rect x="14.5" y="5" width="2.5" height="14" rx="1" />
+              </svg>
+            </span>
+          </div>
+        </div>
+
         <SplitPane
-          side="right"
           title="Migrated GrapeJS"
           badge="Migrated"
           url={migratedUrl}
           loadMs={migLoadMs}
           onLoadMs={setMigLoadMs}
+          widthPct={isDesktop ? 100 - leftPct : undefined}
         />
 
-        {/* Center divider + floating dock */}
-        <div
-          className="pointer-events-none absolute inset-y-0 left-1/2 z-20 hidden w-px -translate-x-1/2 bg-[color-mix(in_srgb,var(--color-studio-border)_80%,transparent)] md:block"
-          aria-hidden="true"
-        />
         <div className="pointer-events-none absolute bottom-4 left-1/2 z-30 -translate-x-1/2 md:bottom-5">
           <button
             type="button"

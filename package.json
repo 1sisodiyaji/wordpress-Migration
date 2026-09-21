@@ -14,7 +14,10 @@
     "docker:dev": "docker compose -f compose.dev.yml up --build",
     "docker:prod": "docker compose -f compose.prod.yml up --build",
     "docker:build": "docker compose -f compose.prod.yml build",
-    "docker:push": "docker push golusingh07/pen-wordpress-migrator-admin:latest && docker push golusingh07/pen-wordpress-migrator-converter:latest"
+    "docker:push": "docker push golusingh07/pen-wordpress-migrator-admin:latest && docker push golusingh07/pen-wordpress-migrator-converter:latest",
+    "migrate:templates": "pnpm --dir automation/template-migrate start",
+    "migrate:templates:one": "pnpm --dir automation/template-migrate start -- --limit 1",
+    "zip:plugin": "node data/zip-plugin.mjs"
   },
   "dependencies": {
     "adm-zip": "^0.5.16",

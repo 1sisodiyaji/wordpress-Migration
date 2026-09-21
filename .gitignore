@@ -25,3 +25,13 @@ yarn-error.log*
 .env
 .cursor/*
 !.cursor/rules/
+
+automation/.work/
+automation/template-migrate/node_modules/
+
+# Export zips / templates stay local; keep plugin source + zip helper tracked
+data/*
+!data/Plugin/
+!data/Plugin/**
+!data/zip-plugin.mjs
+data/Plugin.zip

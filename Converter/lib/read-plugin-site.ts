@@ -379,11 +379,26 @@ function collectBlockThemeCanvasStyles(assetsRoot: string): string[] {
       "css/dist/block-library/style.css",
       "css/dist/block-library/theme.min.css",
       "css/dist/block-library/theme.css",
+      "css/dist/block-library/common.min.css",
+      "css/dist/block-library/common.css",
       "css/classic-themes.min.css",
       "css/classic-themes.css",
     ]) {
       if (fs.existsSync(path.join(includesRoot, rel))) {
         styles.push(`/assets/wp-includes/${rel}`);
+      }
+    }
+    // Per-block frontend CSS (image, group, columns, cover…).
+    const blocksRoot = path.join(includesRoot, "blocks");
+    if (fs.existsSync(blocksRoot)) {
+      for (const block of fs.readdirSync(blocksRoot).sort()) {
+        const blockDir = path.join(blocksRoot, block);
+        if (!fs.statSync(blockDir).isDirectory()) continue;
+        for (const name of ["style.min.css", "style.css", "theme.min.css", "theme.css"]) {
+          if (fs.existsSync(path.join(blockDir, name))) {
+            styles.push(`/assets/wp-includes/blocks/${block}/${name}`);
+          }
+        }
       }
     }
   }

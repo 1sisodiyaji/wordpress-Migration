@@ -35,6 +35,7 @@ import {
 } from "./html-to-grape";
 import { assertValidAppTsx, buildAppTsx } from "./app-shell-template";
 import { buildGrapeRegionTsx, GRAPE_EDITOR_CSS } from "./grape-region-template";
+import { writePageSectionReactComponents, buildSectionSpecs } from "./page-section-components";
 import {
   pipelineDetail,
   pipelineFail,
@@ -315,6 +316,27 @@ ul { margin: 0; padding: 0; }
 .wp-block-buttons.is-content-justification-right { justify-content: flex-end; }
 .wp-block-buttons.is-content-justification-left { justify-content: flex-start; }
 
+/*
+ * Flex justification utilities — global-styles export often omits these, which
+ * collapses FSE headers (title | nav | CTA) into a stacked column.
+ */
+.is-layout-flex.is-content-justification-left,
+.is-content-justification-left { justify-content: flex-start; }
+.is-layout-flex.is-content-justification-center,
+.is-content-justification-center { justify-content: center; }
+.is-layout-flex.is-content-justification-right,
+.is-content-justification-right { justify-content: flex-end; }
+.is-layout-flex.is-content-justification-space-between,
+.is-content-justification-space-between { justify-content: space-between; }
+.is-layout-flex.is-content-justification-stretch,
+.is-content-justification-stretch { justify-content: stretch; }
+.is-layout-flex.is-nowrap,
+.is-nowrap { flex-wrap: nowrap !important; }
+.items-justified-left { justify-content: flex-start; }
+.items-justified-center { justify-content: center; }
+.items-justified-right { justify-content: flex-end; }
+.items-justified-space-between { justify-content: space-between; }
+
 /* Image roundness: variation --2/3/4 must win over base is-style-rounded (9999px) */
 :root :where(.wp-block-image.is-style-rounded.is-style-rounded--2 img),
 :root :where(.wp-block-image.is-style-rounded--2 img) {
@@ -335,63 +357,45 @@ ul { margin: 0; padding: 0; }
 }
 
 /*
- * Navigation overlay: without block navigation CSS, open/close chrome + menu
- * all show at once. Mirror WP desktop behavior (horizontal links, no overlay UI).
+ * FSE header helpers — do NOT override core navigation responsive CSS.
+ * WP already: <600px hamburger + hidden overlay; ≥600px inline links.
+ * Overlay open/close needs a tiny click handler (SiteHeader) because the
+ * Interactivity API is not shipped in the migrated app.
  */
-.wp-block-navigation {
-  position: relative;
-}
-.wp-block-navigation .wp-block-navigation__responsive-container-open {
-  display: none;
-}
-.wp-block-navigation .wp-block-navigation__responsive-container-close {
-  display: none !important;
-}
-.wp-block-navigation .wp-block-navigation__responsive-container {
-  display: block !important;
-  position: static !important;
-  width: auto !important;
-  height: auto !important;
-  overflow: visible !important;
-  background: transparent !important;
-  padding: 0 !important;
-}
-.wp-block-navigation .wp-block-navigation__responsive-close,
-.wp-block-navigation .wp-block-navigation__responsive-dialog {
-  display: contents;
-}
-.wp-block-navigation .wp-block-navigation__responsive-container-content {
-  display: block !important;
-  position: static !important;
-  padding: 0 !important;
-}
-.wp-block-navigation .wp-block-navigation__container,
-.wp-block-navigation .wp-block-page-list {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
+.site-header .wp-block-columns.is-not-stacked-on-mobile,
+header .wp-block-columns.is-not-stacked-on-mobile {
+  display: flex !important;
+  flex-wrap: nowrap !important;
   align-items: center;
-  gap: 1rem;
-  list-style: none;
-  margin: 0;
-  padding: 0;
+  width: 100%;
 }
-.wp-block-navigation.is-vertical .wp-block-navigation__container,
-.wp-block-navigation.is-vertical.wp-block-navigation {
-  flex-direction: column;
-  align-items: flex-start;
-}
-.wp-block-navigation a {
-  text-decoration: none;
+.site-header .wp-block-group.is-layout-flex,
+header .wp-block-group.is-layout-flex {
+  display: flex !important;
+  align-items: center;
 }
 .site-header .wp-block-group.is-content-justification-space-between,
 header .wp-block-group.is-content-justification-space-between {
-  display: flex !important;
-  flex-wrap: wrap;
-  align-items: center;
   justify-content: space-between;
-  gap: 1rem;
   width: 100%;
+}
+.site-header .wp-block-group.is-content-justification-right,
+header .wp-block-group.is-content-justification-right {
+  justify-content: flex-end;
+  gap: var(--wp--style--block-gap, 1rem);
+}
+.site-header .wp-block-group.is-nowrap,
+header .wp-block-group.is-nowrap {
+  flex-wrap: nowrap !important;
+}
+.site-header .wp-block-site-title a,
+header .wp-block-site-title a {
+  text-decoration: none;
+}
+.wp-block-navigation a,
+.wp-block-navigation .wp-block-navigation-item__content {
+  color: inherit;
+  text-decoration: none;
 }
 
 /* Footer: columns + stacked navs without absolute/overlay bleed */
@@ -420,11 +424,22 @@ footer .wp-block-column {
 footer .wp-block-navigation {
   position: static !important;
 }
+/* Footer navs are usually vertical lists — show links, hide overlay chrome */
 .site-footer .wp-block-navigation .wp-block-navigation__responsive-container-open,
 .site-footer .wp-block-navigation .wp-block-navigation__responsive-container-close,
 footer .wp-block-navigation .wp-block-navigation__responsive-container-open,
 footer .wp-block-navigation .wp-block-navigation__responsive-container-close {
   display: none !important;
+}
+.site-footer .wp-block-navigation .wp-block-navigation__responsive-container,
+footer .wp-block-navigation .wp-block-navigation__responsive-container {
+  display: block !important;
+  position: static !important;
+  width: auto !important;
+  height: auto !important;
+  overflow: visible !important;
+  background: transparent !important;
+  padding: 0 !important;
 }
 .site-footer .wp-block-navigation.is-vertical .wp-block-navigation__container,
 footer .wp-block-navigation.is-vertical .wp-block-navigation__container {
@@ -886,6 +901,13 @@ function writeData(projectDir: string, site: PluginSite, elementorKitClasses: st
     writePageGrapeArtifacts(projectDir, site.slug, p.key, p.contentHtml, p.grapeBlocks ?? null);
   }
 
+  const sectionStats = writePageSectionReactComponents(projectDir, pages);
+  pipelineStep(
+    "convert",
+    `React page components: ${sectionStats.pagesWithSections} page(s), ${sectionStats.sectionCount} section(s)`,
+    site.slug,
+  );
+
   const globalScripts = new Set<string>(site.globalScripts);
   for (const p of pages) {
     for (const s of p.canvasScripts) globalScripts.add(s);
@@ -1013,17 +1035,72 @@ export function SiteNav() {
 
   fs.writeFileSync(
     path.join(layoutDir, "SiteHeader.tsx"),
-    `import layout from "../../data/layout.json";
+    `import { useEffect, useRef } from "react";
+import layout from "../../data/layout.json";
 
 /** Collapse multisite upload URLs to the exported flat /uploads/{yyyy}/{mm}/ tree. */
 function fixMediaUrls(html: string): string {
   return html.replace(/(\\/assets\\/wp-content\\/uploads)\\/sites\\/\\d+\\//gi, "$1/");
 }
 
+function setMenuOpen(nav: Element, open: boolean) {
+  const container = nav.querySelector(".wp-block-navigation__responsive-container");
+  if (!container) return;
+  container.classList.toggle("is-menu-open", open);
+  container.classList.toggle("has-modal-open", open);
+  document.documentElement.classList.toggle("has-modal-open", open);
+}
+
 /** Header HTML source from the WP export. Injected into each page canvas via GrapeRegion (\`site-header\`). */
 export function SiteHeader() {
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+
+    const onClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      const openBtn = target.closest(".wp-block-navigation__responsive-container-open");
+      const closeBtn = target.closest(".wp-block-navigation__responsive-container-close");
+      if (openBtn) {
+        e.preventDefault();
+        const nav = openBtn.closest(".wp-block-navigation");
+        if (nav) setMenuOpen(nav, true);
+        return;
+      }
+      if (closeBtn) {
+        e.preventDefault();
+        const nav = closeBtn.closest(".wp-block-navigation");
+        if (nav) setMenuOpen(nav, false);
+      }
+    };
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      root.querySelectorAll(".wp-block-navigation__responsive-container.is-menu-open").forEach((el) => {
+        const nav = el.closest(".wp-block-navigation");
+        if (nav) setMenuOpen(nav, false);
+      });
+    };
+
+    root.addEventListener("click", onClick);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      root.removeEventListener("click", onClick);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, []);
+
   if (!layout.headerHtml?.trim()) return null;
-  return <div className="site-header" dangerouslySetInnerHTML={{ __html: fixMediaUrls(layout.headerHtml) }} />;
+  return (
+    <div
+      ref={rootRef}
+      className="site-header"
+      dangerouslySetInnerHTML={{ __html: fixMediaUrls(layout.headerHtml) }}
+    />
+  );
 }
 
 export function getHeaderHtml(): string {
@@ -1251,6 +1328,7 @@ export function SiteAssets({ pageKey }: { pageKey?: string }) {
     path.join(projectDir, "src", "components", "PageView.tsx"),
     `import { useMemo } from "react";
 import siteData from "../data/site.json";
+import { PAGE_BODIES } from "./pages/registry";
 
 /** Collapse multisite upload URLs to the exported flat /uploads/{yyyy}/{mm}/ tree. */
 function fixMediaUrls(html: string): string {
@@ -1259,13 +1337,19 @@ function fixMediaUrls(html: string): string {
 
 /**
  * Public (non-editor) render of a migrated page body.
- * Header/footer come from SiteLayout; body from site.json contentHtml.
+ * Prefers per-section React components when convert emitted them;
+ * falls back to monolithic contentHtml.
  */
 export function PageView({ pageKey }: { pageKey: string }) {
   const page = useMemo(
     () => siteData.pages.find((p) => p.key === pageKey) ?? siteData.pages[0],
     [pageKey],
   );
+
+  const Body = PAGE_BODIES[pageKey] ?? (page?.key ? PAGE_BODIES[page.key] : undefined);
+  if (Body) {
+    return <Body />;
+  }
 
   const html = fixMediaUrls(page?.contentHtml?.trim() || "<p>Empty page</p>");
 
@@ -1291,16 +1375,66 @@ function writeGrapeRegion(projectDir: string): void {
 }
 
 function writePageModules(projectDir: string, site: PluginSite): void {
+  const siteJsonPath = path.join(projectDir, "src", "data", "site.json");
+  let pagesMeta: Array<{ key: string; grapeBlocks?: GrapeBlock[] | null }> = site.pages.map((p) => ({
+    key: p.key,
+    grapeBlocks: null,
+  }));
+  if (fs.existsSync(siteJsonPath)) {
+    try {
+      const raw = JSON.parse(fs.readFileSync(siteJsonPath, "utf8")) as {
+        pages?: Array<{ key: string; grapeBlocks?: GrapeBlock[] | null }>;
+      };
+      if (Array.isArray(raw.pages)) pagesMeta = raw.pages;
+    } catch {
+      /* keep defaults */
+    }
+  }
+  const metaByKey = new Map(pagesMeta.map((p) => [p.key, p]));
+
   for (const page of site.pages) {
     const componentName = pageKeyToComponent(page.key);
-    fs.writeFileSync(
-      path.join(projectDir, "src", "pages", `${componentName}.tsx`),
-      `import { GrapeRegion } from "../components/grape/GrapeRegion";
+    const blocks = metaByKey.get(page.key)?.grapeBlocks;
+    const hasBlocks = Array.isArray(blocks) && blocks.length > 0;
+    const specs = hasBlocks ? buildSectionSpecs(blocks!) : [];
 
+    let content: string;
+    if (specs.length > 0) {
+      const imports = specs
+        .map(
+          (s) =>
+            `import { ${s.componentName} } from "../components/pages/${page.key}/${s.componentName}";`,
+        )
+        .join("\n");
+      const children = specs.map((s) => `      <${s.componentName} />`).join("\n");
+      content = `/**
+ * Static page component tree for "${page.key}".
+ * Each section is its own file under src/components/pages/${page.key}/.
+ * Edit mode (/edit) uses GrapeRegion — this file is the view/static codebase.
+ */
+${imports}
+
+export default function ${componentName}() {
+  return (
+    <div className="page-body" data-page-key=${JSON.stringify(page.key)} data-sections={${specs.length}}>
+${children}
+    </div>
+  );
+}
+`;
+    } else {
+      content = `import { GrapeRegion } from "../components/grape/GrapeRegion";
+
+/** Fallback when convert did not emit section components. */
 export default function ${componentName}() {
   return <GrapeRegion pageKey=${JSON.stringify(page.key)} />;
 }
-`,
+`;
+    }
+
+    fs.writeFileSync(
+      path.join(projectDir, "src", "pages", `${componentName}.tsx`),
+      content,
       "utf8",
     );
   }
@@ -1442,12 +1576,11 @@ createRoot(document.getElementById("root")!).render(<App />);
     "utf8",
   );
 
-  const imports = site.pages
-    .map((p) => `import ${pageKeyToComponent(p.key)} from "./pages/${pageKeyToComponent(p.key)}";`)
-    .join("\n");
+  const imports = 'import { GrapeRegion } from "./components/grape/GrapeRegion";';
 
+  // Edit canvas = GrapeRegion; view uses PageView → section components.
   const pageElementEntries = site.pages
-    .map((p) => `  ${JSON.stringify(p.key)}: <${pageKeyToComponent(p.key)} />,`)
+    .map((p) => `  ${JSON.stringify(p.key)}: <GrapeRegion pageKey=${JSON.stringify(p.key)} />,`)
     .join("\n");
 
   const appTsx = buildAppTsx({

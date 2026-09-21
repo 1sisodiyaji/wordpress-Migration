@@ -213,6 +213,11 @@ export interface CompareInsightsResponse {
   migrated: PageInsight;
   deltas: { label: string; original: string; migrated: string; better: "original" | "migrated" | "same" }[];
   measuredAt: string;
+  pageBuilder?: {
+    id: string;
+    label: string;
+    source: "manifest" | "route" | "page-meta" | "heuristic" | "unknown";
+  };
 }
 
 export async function fetchCompareInsights(

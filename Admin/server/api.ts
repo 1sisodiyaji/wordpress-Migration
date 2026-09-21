@@ -411,8 +411,153 @@ export function registerApi(app: Express): void {
       migrated,
       deltas: original.ok && migrated.ok ? comparisonSummary(original, migrated) : [],
       measuredAt: new Date().toISOString(),
+      pageBuilder: readProjectPageBuilder(slug),
     });
   });
+}
+
+/** Detect Elementor / Gutenberg / Classic from the migrated export (route → page meta → heuristics). */
+function readProjectPageBuilder(slug: string): {
+  id: string;
+  label: string;
+  source: "manifest" | "route" | "page-meta" | "heuristic" | "unknown";
+} {
+  const dataDir = getMigratedDataDir(slug);
+  const normalize = (raw: string | undefined | null): "elementor" | "gutenberg" | "classic" | null => {
+    const v = String(raw ?? "")
+      .trim()
+      .toLowerCase();
+    if (!v) return null;
+    if (v === "elementor" || v.includes("elementor")) return "elementor";
+    if (
+      v === "gutenberg" ||
+      v === "block" ||
+      v === "blocks" ||
+      v === "fse" ||
+      v === "block-editor" ||
+      v.includes("gutenberg")
+    ) {
+      return "gutenberg";
+    }
+    if (v === "classic" || v === "theme" || v === "php") return "classic";
+    return null;
+  };
+  const labelFor = (id: string) =>
+    id === "elementor"
+      ? "Elementor"
+      : id === "gutenberg"
+        ? "Gutenberg"
+        : id === "classic"
+          ? "Classic / theme"
+          : "Unknown";
+
+  const manifestPath = path.join(dataDir, "manifest.json");
+  if (fs.existsSync(manifestPath)) {
+    try {
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as {
+        pageBuilder?: string;
+        routes?: Array<{ pageBuilder?: string; path?: string; isElementor?: boolean; slug?: string }>;
+      };
+
+      const homeRoute =
+        manifest.routes?.find((r) => r.path === "/" || r.path === "") ??
+        manifest.routes?.find((r) => r.slug === "home") ??
+        manifest.routes?.[0];
+
+      const fromRoute = normalize(homeRoute?.pageBuilder);
+      if (fromRoute) {
+        return { id: fromRoute, label: labelFor(fromRoute), source: "route" };
+      }
+      if (homeRoute?.isElementor) {
+        return { id: "elementor", label: labelFor("elementor"), source: "route" };
+      }
+
+      // Any route with a concrete builder beats a vague site-level "classic".
+      for (const route of manifest.routes ?? []) {
+        const id = normalize(route.pageBuilder);
+        if (id && id !== "classic") {
+          return { id, label: labelFor(id), source: "route" };
+        }
+        if (route.isElementor) {
+          return { id: "elementor", label: labelFor("elementor"), source: "route" };
+        }
+      }
+
+      const fromManifest = normalize(manifest.pageBuilder);
+      if (fromManifest) {
+        return { id: fromManifest, label: labelFor(fromManifest), source: "manifest" };
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+
+  // Per-page meta (home / first page).
+  const pagesDir = path.join(dataDir, "pages");
+  if (fs.existsSync(pagesDir)) {
+    const candidates = [
+      path.join(pagesDir, "home", "meta.json"),
+      path.join(pagesDir, "home.meta.json"),
+    ];
+    try {
+      for (const entry of fs.readdirSync(pagesDir, { withFileTypes: true })) {
+        if (entry.isDirectory()) {
+          candidates.push(path.join(pagesDir, entry.name, "meta.json"));
+        } else if (entry.name.endsWith(".meta.json")) {
+          candidates.push(path.join(pagesDir, entry.name));
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+    for (const metaPath of candidates) {
+      if (!fs.existsSync(metaPath)) continue;
+      try {
+        const meta = JSON.parse(fs.readFileSync(metaPath, "utf8")) as {
+          pageBuilder?: string;
+          isElementor?: boolean;
+        };
+        const id = normalize(meta.pageBuilder);
+        if (id) return { id, label: labelFor(id), source: "page-meta" };
+        if (meta.isElementor) {
+          return { id: "elementor", label: labelFor("elementor"), source: "page-meta" };
+        }
+      } catch {
+        /* next */
+      }
+    }
+  }
+
+  // Heuristic from layout / rendered HTML.
+  const sniffFiles = [
+    path.join(dataDir, "layout.json"),
+    path.join(dataDir, "pages", "home", "rendered.html"),
+    path.join(dataDir, "pages", "home", "content.html"),
+  ];
+  for (const file of sniffFiles) {
+    if (!fs.existsSync(file)) continue;
+    try {
+      const raw = fs.readFileSync(file, "utf8").slice(0, 80_000).toLowerCase();
+      if (
+        raw.includes("elementor") ||
+        raw.includes("data-elementor") ||
+        raw.includes("elementor-location-header")
+      ) {
+        return { id: "elementor", label: labelFor("elementor"), source: "heuristic" };
+      }
+      if (
+        raw.includes("wp-block-") ||
+        raw.includes("wp-block-template-part") ||
+        raw.includes("wp-block-navigation")
+      ) {
+        return { id: "gutenberg", label: labelFor("gutenberg"), source: "heuristic" };
+      }
+    } catch {
+      /* next */
+    }
+  }
+
+  return { id: "unknown", label: "Unknown", source: "unknown" };
 }
 
 function listAllStudioMeta() {
