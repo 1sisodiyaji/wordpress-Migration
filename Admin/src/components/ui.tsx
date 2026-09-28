@@ -45,24 +45,33 @@ export function Checkbox({
   return (
     <label
       className={cx(
-        "inline-flex cursor-pointer items-center gap-2.5 text-sm text-studio-text select-none",
+        "relative inline-flex cursor-pointer items-center gap-2.5 text-sm text-studio-text select-none",
         disabled && "cursor-not-allowed opacity-55",
       )}
       htmlFor={id}
     >
+      {/*
+        Full-label hit target: keep the native checkbox focusable/clickable over the
+        whole row. Do NOT use a 1×1 absolute input (it can miss clicks / leave the
+        visual box non-interactive depending on containing block).
+      */}
       <input
         id={id}
         type="checkbox"
-        className="studio-check absolute h-px w-px opacity-0"
+        className="studio-check peer absolute inset-0 z-10 m-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
         checked={checked}
         disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
       />
       <span
-        className="studio-check-box inline-flex size-4 shrink-0 items-center justify-center rounded-md border border-studio-border bg-studio-surface"
+        className={cx(
+          "studio-check-box pointer-events-none inline-flex size-4 shrink-0 items-center justify-center rounded-md border border-studio-border bg-studio-surface transition",
+          "peer-checked:border-coral peer-checked:bg-coral",
+          "peer-focus-visible:shadow-[0_0_0_3px_var(--color-coral-soft)]",
+        )}
         aria-hidden="true"
       />
-      <span className="leading-tight">{label}</span>
+      <span className="pointer-events-none leading-tight">{label}</span>
     </label>
   );
 }

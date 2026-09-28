@@ -28,12 +28,26 @@ export interface UnresolvedShortcode {
 export interface ProjectAudit {
   unresolvedShortcodes: UnresolvedShortcode[];
   warnings: string[];
+  missingAssets: string[];
   summary: {
     pages: number;
     templates: number;
     menus: number;
     media: number;
     hasLayout: boolean;
+  } | null;
+  assetFidelity?: {
+    generatedAt: string;
+    phase: string;
+    totalMissing: number;
+    stylesMissing: number;
+    scriptsMissing: number;
+    canvasStylesMissing: number;
+    stylesDeclared: number;
+    scriptsDeclared: number;
+    bytesPresent: number;
+    guardrailPassed: boolean;
+    failures: string[];
   } | null;
 }
 

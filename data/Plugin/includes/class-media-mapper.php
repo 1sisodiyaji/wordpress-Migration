@@ -91,9 +91,146 @@ class Media_Mapper {
 
 			if ( $this->copy_files && $file && $rel_content ) {
 				$this->writer->copy( $file, 'assets/wp-content/' . $rel_content );
+				// Also copy intermediate sizes next to the original.
+				if ( ! empty( $meta['sizes'] ) && is_array( $meta['sizes'] ) && $file ) {
+					$base_dir = trailingslashit( dirname( $file ) );
+					$rel_dir  = trailingslashit( dirname( $rel_content ) );
+					foreach ( $meta['sizes'] as $info ) {
+						if ( empty( $info['file'] ) ) {
+							continue;
+						}
+						$sized = $base_dir . $info['file'];
+						if ( is_readable( $sized ) ) {
+							$this->writer->copy( $sized, 'assets/wp-content/' . $rel_dir . $info['file'] );
+						}
+					}
+				}
 			}
 		}
 
 		return $out;
+	}
+
+	/**
+	 * Always copy uploads referenced by exported HTML (header/footer/pages),
+	 * even when copy_media is false — site logos and footer images must ship.
+	 *
+	 * @param string $staging Absolute staging directory (bundle root).
+	 * @return int Files copied.
+	 */
+	public function copy_referenced_uploads( $staging ) {
+		$staging = trailingslashit( (string) $staging );
+		if ( ! is_dir( $staging ) ) {
+			return 0;
+		}
+
+		$content_dir = defined( 'WP_CONTENT_DIR' ) ? WP_CONTENT_DIR : ABSPATH . 'wp-content';
+		$uploads     = wp_upload_dir();
+		$upload_base = ! empty( $uploads['basedir'] ) ? trailingslashit( $uploads['basedir'] ) : '';
+		$upload_url  = ! empty( $uploads['baseurl'] ) ? trailingslashit( $uploads['baseurl'] ) : '';
+
+		$paths = array();
+		$iterator = new \RecursiveIteratorIterator(
+			new \RecursiveDirectoryIterator( $staging, \FilesystemIterator::SKIP_DOTS )
+		);
+		foreach ( $iterator as $file ) {
+			if ( ! $file->isFile() ) {
+				continue;
+			}
+			$ext = strtolower( pathinfo( $file->getFilename(), PATHINFO_EXTENSION ) );
+			if ( ! in_array( $ext, array( 'html', 'htm', 'css', 'json' ), true ) ) {
+				continue;
+			}
+			$paths[] = $file->getPathname();
+		}
+
+		$copied = 0;
+		$seen   = array();
+
+		// Always include the custom logo attachment when set.
+		$logo_id = (int) get_theme_mod( 'custom_logo' );
+		if ( $logo_id > 0 ) {
+			$copied += $this->copy_attachment_tree( $logo_id, $seen );
+		}
+
+		foreach ( $paths as $path ) {
+			$contents = @file_get_contents( $path ); // phpcs:ignore WordPress.WP.AlternativeFunctions, WordPress.PHP.NoSilencedErrors
+			if ( ! is_string( $contents ) || '' === $contents ) {
+				continue;
+			}
+			if ( ! preg_match_all( '#(?:https?:)?//[^"\'\s\)]+/wp-content/uploads/([^"\'\s\)]+)#i', $contents, $matches ) ) {
+				continue;
+			}
+			foreach ( $matches[1] as $rel ) {
+				$rel = rawurldecode( strtok( $rel, '?#' ) );
+				$rel = ltrim( str_replace( '\\', '/', $rel ), '/' );
+				if ( '' === $rel || isset( $seen[ $rel ] ) ) {
+					continue;
+				}
+				$seen[ $rel ] = true;
+
+				$abs = '';
+				if ( $upload_base && is_readable( $upload_base . $rel ) ) {
+					$abs = $upload_base . $rel;
+				} elseif ( is_readable( trailingslashit( $content_dir ) . 'uploads/' . $rel ) ) {
+					$abs = trailingslashit( $content_dir ) . 'uploads/' . $rel;
+				}
+				if ( ! $abs ) {
+					continue;
+				}
+				if ( $this->writer->copy( $abs, 'assets/wp-content/uploads/' . $rel ) ) {
+					++$copied;
+				}
+			}
+		}
+
+		return $copied;
+	}
+
+	/**
+	 * Copy one attachment + its intermediate sizes into the bundle.
+	 *
+	 * @param int   $attachment_id Attachment ID.
+	 * @param array $seen          Rel paths already copied (by ref).
+	 * @return int Files copied.
+	 */
+	private function copy_attachment_tree( $attachment_id, array &$seen ) {
+		$file = get_attached_file( $attachment_id );
+		if ( ! $file || ! is_readable( $file ) ) {
+			return 0;
+		}
+		$content_dir = defined( 'WP_CONTENT_DIR' ) ? WP_CONTENT_DIR : ABSPATH . 'wp-content';
+		if ( 0 !== strpos( $file, $content_dir ) ) {
+			return 0;
+		}
+		$rel = ltrim( substr( $file, strlen( $content_dir ) ), '/' );
+		$copied = 0;
+		if ( ! isset( $seen[ $rel ] ) ) {
+			$seen[ $rel ] = true;
+			if ( $this->writer->copy( $file, 'assets/wp-content/' . $rel ) ) {
+				++$copied;
+			}
+		}
+		$meta = wp_get_attachment_metadata( $attachment_id );
+		if ( empty( $meta['sizes'] ) || ! is_array( $meta['sizes'] ) ) {
+			return $copied;
+		}
+		$base_dir = trailingslashit( dirname( $file ) );
+		$rel_dir  = trailingslashit( dirname( $rel ) );
+		foreach ( $meta['sizes'] as $info ) {
+			if ( empty( $info['file'] ) ) {
+				continue;
+			}
+			$sized_rel = $rel_dir . $info['file'];
+			if ( isset( $seen[ $sized_rel ] ) ) {
+				continue;
+			}
+			$seen[ $sized_rel ] = true;
+			$sized = $base_dir . $info['file'];
+			if ( is_readable( $sized ) && $this->writer->copy( $sized, 'assets/wp-content/' . $sized_rel ) ) {
+				++$copied;
+			}
+		}
+		return $copied;
 	}
 }

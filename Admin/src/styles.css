@@ -77,13 +77,12 @@
   }
 }
 
-/* Checkbox tick (peer pattern) */
+/* Checkbox tick (works with peer-checked box fill from the component) */
 @layer components {
-  .studio-check:checked + .studio-check-box {
-    @apply border-coral bg-coral;
-  }
-  .studio-check:checked + .studio-check-box::after {
+  .studio-check:checked + .studio-check-box::after,
+  .peer:checked + .studio-check-box::after {
     content: "";
+    display: block;
     width: 0.28rem;
     height: 0.5rem;
     border: solid #fff;
@@ -102,11 +101,12 @@
       transform: scale(0.85);
     }
   }
+
   .studio-live-dot {
     animation: studio-pulse 1.6s ease-in-out infinite;
   }
 }
 
-button{
+button {
   cursor: pointer;
 }

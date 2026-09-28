@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { fileURLToPath } from "node:url";
 import { extractPageShellBody } from "../shared/wp/page-shell";
 
 /** Body HTML for GrapeJS, with wp-content URLs rewritten to /assets/wp-content/. */
@@ -44,8 +45,14 @@ export function pruneMissingSrcset(html: string, assetsRoot: string): string {
 export const ELEMENTOR_PREVIEW_STYLE_HREF = "/assets/inline/styles/elementor-preview.css";
 /** Makes Elementor kit CSS variables resolve inside the GrapeJS iframe (no WP body class). */
 export const ELEMENTOR_KIT_VARS_STYLE_HREF = "/assets/inline/styles/elementor-kit-vars.css";
-/** Canvas font stack + local/remote font stylesheet imports. */
+/** Canvas font stack + local/remote font stylesheet imports (Elementor). */
 export const SITE_FONTS_STYLE_HREF = "/assets/inline/styles/site-fonts.css";
+/** Theme.json @font-face + orphan palette utilities (FSE / Gutenberg). */
+export const THEME_FONTS_STYLE_HREF = "/assets/inline/styles/theme-fonts.css";
+
+/** Duotone CSS vars (SVG filters live in /assets/inline/duotone-filters.html). */
+export const THEME_DUOTONE_STYLE_HREF = "/assets/inline/styles/theme-duotone.css";
+export const THEME_DUOTONE_SVG_HREF = "/assets/inline/duotone-filters.html";
 
 /** Remote stylesheets the WP export often omits (fonts / Font Awesome). */
 export const CANVAS_REMOTE_STYLES: string[] = [
@@ -264,6 +271,8 @@ export function withElementorPreviewStyle(styles: string[]): string[] {
       s !== ELEMENTOR_KIT_VARS_STYLE_HREF &&
       s !== ELEMENTOR_CANVAS_FIX_STYLE_HREF &&
       s !== SITE_FONTS_STYLE_HREF &&
+      s !== THEME_FONTS_STYLE_HREF &&
+      s !== THEME_DUOTONE_STYLE_HREF &&
       !remote.has(s),
   );
   return [
@@ -276,8 +285,15 @@ export function withElementorPreviewStyle(styles: string[]): string[] {
   ];
 }
 
+/** WP 6.8+ design system tokens (handle: wp-theme). */
+export const WP_DESIGN_TOKENS_HREF = "/assets/wp-includes/css/dist/theme/design-tokens.min.css";
+
 /** Prefix canvas styles for the detected builder (skip Elementor chrome on Gutenberg/Neve). */
-export function withBuilderCanvasStyles(styles: string[], pageBuilder?: string): string[] {
+export function withBuilderCanvasStyles(
+  styles: string[],
+  pageBuilder?: string,
+  assetsRoot?: string,
+): string[] {
   if ((pageBuilder ?? "unknown") === "elementor") {
     return withElementorPreviewStyle(styles);
   }
@@ -288,13 +304,369 @@ export function withBuilderCanvasStyles(styles: string[], pageBuilder?: string):
       s !== ELEMENTOR_KIT_VARS_STYLE_HREF &&
       s !== ELEMENTOR_CANVAS_FIX_STYLE_HREF &&
       s !== SITE_FONTS_STYLE_HREF &&
+      s !== THEME_FONTS_STYLE_HREF &&
+      s !== THEME_DUOTONE_STYLE_HREF &&
+      s !== WP_DESIGN_TOKENS_HREF &&
+      !/\/css\/dist\/theme\/design-tokens/i.test(s) &&
       !remote.has(s) &&
       !/\/plugins\/elementor\//i.test(s) &&
       !/\/plugins\/elementskit/i.test(s) &&
       !/\/themes\/astra\//i.test(s) &&
       !/\/uploads\/elementor\//i.test(s),
   );
-  return [SITE_FONTS_STYLE_HREF, ...without];
+
+  const tokens: string[] = [];
+  if (assetsRoot) {
+    for (const rel of [
+      "wp-includes/css/dist/theme/design-tokens.min.css",
+      "wp-includes/css/dist/theme/design-tokens.css",
+    ]) {
+      const abs = path.join(assetsRoot, rel);
+      if (fs.existsSync(abs) && fs.statSync(abs).size > 0) {
+        tokens.push(`/assets/${rel}`);
+        break;
+      }
+    }
+  }
+
+  // FSE/classic: theme fonts + duotone + design-tokens — never force Elementor Manrope.
+  return [THEME_FONTS_STYLE_HREF, THEME_DUOTONE_STYLE_HREF, ...tokens, ...without];
+}
+
+/**
+ * Emit @font-face from exported theme.json fontFace entries + palette utilities for
+ * orphan color slugs (e.g. custom-hover) referenced in block markup but missing from
+ * global-styles presets.
+ */
+export function writeThemeFontsStyle(
+  projectAssetsDir: string,
+  opts: { siteSlug: string; dataDir: string },
+): string {
+  const out = path.join(projectAssetsDir, "inline", "styles", "theme-fonts.css");
+  fs.mkdirSync(path.dirname(out), { recursive: true });
+
+  const chunks: string[] = ["/* Theme fonts + orphan palette utilities (from WP theme export) */"];
+
+  // Prefer exported wp-fonts-local dump when present.
+  const exportedFonts = [
+    path.join(opts.dataDir, "assets", "inline", "styles", "wp-fonts-local.css"),
+    path.join(projectAssetsDir, "inline", "styles", "wp-fonts-local.css"),
+  ];
+  for (const f of exportedFonts) {
+    if (fs.existsSync(f) && fs.statSync(f).size > 0) {
+      let css = fs.readFileSync(f, "utf8");
+      // Point font URLs at Vite-served theme copies when possible.
+      css = css.replace(
+        /url\(['"]?(?:https?:\/\/[^'")]+)?\/wp-content\/themes\/([^'")]+)['"]?\)/gi,
+        (_m, rel: string) => `url("/assets/theme/${rel.replace(/^\/+/, "")}")`,
+      );
+      css = css.replace(
+        /url\(['"]?(?:https?:\/\/[^'")]+)?\/wp-content\/themes\/([^/]+)\/([^'")]+)['"]?\)/gi,
+        (_m, theme: string, rest: string) => `url("/assets/theme/${theme}/${rest}")`,
+      );
+      chunks.push(css);
+      break;
+    }
+  }
+
+  // Build @font-face from theme.json when wp-fonts-local was not exported.
+  if (!chunks.some((c) => c.includes("@font-face"))) {
+    const themeRoot = path.join(opts.dataDir, "theme");
+    if (fs.existsSync(themeRoot)) {
+      for (const slug of fs.readdirSync(themeRoot)) {
+        const themeJsonPath = path.join(themeRoot, slug, "theme.json");
+        if (!fs.existsSync(themeJsonPath)) continue;
+        try {
+          const themeJson = JSON.parse(fs.readFileSync(themeJsonPath, "utf8")) as {
+            settings?: { typography?: { fontFamilies?: Array<{
+              fontFamily?: string;
+              fontFace?: Array<{
+                fontFamily?: string;
+                fontStyle?: string;
+                fontWeight?: string;
+                src?: string | string[];
+              }>;
+            }> } };
+          };
+          const families = themeJson.settings?.typography?.fontFamilies ?? [];
+          for (const fam of families) {
+            for (const face of fam.fontFace ?? []) {
+              const srcs = Array.isArray(face.src) ? face.src : face.src ? [face.src] : [];
+              const urls = srcs
+                .map((src) => {
+                  const cleaned = src.replace(/^file:(\.\/)?/, "");
+                  if (!cleaned) return null;
+                  return `url("/assets/theme/${slug}/${cleaned}") format("woff2")`;
+                })
+                .filter(Boolean);
+              if (!urls.length) continue;
+              const family = (face.fontFamily ?? fam.fontFamily ?? "sans-serif").replace(/^"|"$/g, "");
+              chunks.push(`@font-face {
+  font-family: ${family.includes(",") ? family : `"${family}"`};
+  font-style: ${face.fontStyle ?? "normal"};
+  font-weight: ${face.fontWeight ?? "400"};
+  font-display: fallback;
+  src: ${urls.join(", ")};
+}`);
+            }
+          }
+        } catch {
+          /* skip corrupt theme.json */
+        }
+      }
+    }
+  }
+
+  // Orphan palette: ColorValue attrs in theme HTML/patterns + used has-*-color classes.
+  const palette = discoverOrphanThemeColors(opts.dataDir);
+  if (Object.keys(palette).length) {
+    chunks.push("/* Orphan theme color presets (referenced in blocks, missing from global-styles) */");
+    chunks.push(":root {");
+    for (const [slug, color] of Object.entries(palette)) {
+      chunks.push(`  --wp--preset--color--${slug}: ${color};`);
+    }
+    chunks.push("}");
+    for (const [slug, color] of Object.entries(palette)) {
+      chunks.push(`.has-${slug}-color{color: var(--wp--preset--color--${slug}, ${color}) !important;}`);
+      chunks.push(`.has-${slug}-background-color{background-color: var(--wp--preset--color--${slug}, ${color}) !important;}`);
+      chunks.push(`.has-${slug}-border-color{border-color: var(--wp--preset--color--${slug}, ${color}) !important;}`);
+    }
+  }
+
+  fs.writeFileSync(out, `${chunks.join("\n")}\n`, "utf8");
+
+  // Duotone presets are often missing from exported global-styles; regenerate from theme.json.
+  writeThemeDuotoneAssets(projectAssetsDir, opts.dataDir);
+
+  return THEME_FONTS_STYLE_HREF;
+}
+
+type DuotonePreset = { slug?: string; colors?: string[]; name?: string };
+
+/** Parse #rgb / #rrggbb / rgb() into 0–1 channel values (WP_Duotone compatible). */
+function parseCssColorChannels(
+  colorStr: string,
+): { r: number; g: number; b: number; a: number } | null {
+  const s = colorStr.trim();
+  const hex = s.match(/^#([0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i);
+  if (hex) {
+    let h = hex[1];
+    if (h.length === 3 || h.length === 4) {
+      h = h
+        .split("")
+        .map((c) => c + c)
+        .join("");
+    }
+    const r = parseInt(h.slice(0, 2), 16);
+    const g = parseInt(h.slice(2, 4), 16);
+    const b = parseInt(h.slice(4, 6), 16);
+    const a = h.length === 8 ? parseInt(h.slice(6, 8), 16) / 255 : 1;
+    return { r: r / 255, g: g / 255, b: b / 255, a };
+  }
+  const rgb = s.match(
+    /^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)(?:\s*,\s*([\d.]+))?\s*\)$/i,
+  );
+  if (rgb) {
+    return {
+      r: Math.min(255, Number(rgb[1])) / 255,
+      g: Math.min(255, Number(rgb[2])) / 255,
+      b: Math.min(255, Number(rgb[3])) / 255,
+      a: rgb[4] !== undefined ? Number(rgb[4]) : 1,
+    };
+  }
+  return null;
+}
+
+function buildDuotoneFilterSvg(filterId: string, colors: string[]): string | null {
+  const values = { r: [] as number[], g: [] as number[], b: [] as number[], a: [] as number[] };
+  for (const c of colors) {
+    const ch = parseCssColorChannels(c);
+    if (!ch) return null;
+    values.r.push(ch.r);
+    values.g.push(ch.g);
+    values.b.push(ch.b);
+    values.a.push(ch.a);
+  }
+  if (values.r.length < 2) return null;
+  const join = (arr: number[]) => arr.map((n) => (Number.isInteger(n) ? String(n) : String(n))).join(" ");
+  // Match WP_Duotone::get_filter_svg (whitespace-minified like SCRIPT_DEBUG off).
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 0 0" width="0" height="0" focusable="false" role="none" style="visibility: hidden; position: absolute; left: -9999px; overflow: hidden;">` +
+    `<defs><filter id="${filterId}">` +
+    `<feColorMatrix color-interpolation-filters="sRGB" type="matrix" values=".299 .587 .114 0 0 .299 .587 .114 0 0 .299 .587 .114 0 0 .299 .587 .114 0 0" />` +
+    `<feComponentTransfer color-interpolation-filters="sRGB">` +
+    `<feFuncR type="table" tableValues="${join(values.r)}" />` +
+    `<feFuncG type="table" tableValues="${join(values.g)}" />` +
+    `<feFuncB type="table" tableValues="${join(values.b)}" />` +
+    `<feFuncA type="table" tableValues="${join(values.a)}" />` +
+    `</feComponentTransfer>` +
+    `<feComposite in2="SourceGraphic" operator="in" />` +
+    `</filter></defs></svg>`
+  );
+}
+
+function discoverThemeDuotonePresets(dataDir: string): DuotonePreset[] {
+  const themeRoot = path.join(dataDir, "theme");
+  const out: DuotonePreset[] = [];
+  const seen = new Set<string>();
+
+  const pushPresets = (list: DuotonePreset[] | undefined) => {
+    for (const p of list ?? []) {
+      const slug = (p.slug ?? "").trim();
+      if (!slug || !Array.isArray(p.colors) || p.colors.length < 2 || seen.has(slug)) continue;
+      seen.add(slug);
+      out.push({ slug, colors: p.colors, name: p.name });
+    }
+  };
+
+  // Prefer per-theme theme.json, then merged global-styles.json.
+  if (fs.existsSync(themeRoot)) {
+    for (const slug of fs.readdirSync(themeRoot)) {
+      const themeJsonPath = path.join(themeRoot, slug, "theme.json");
+      if (!fs.existsSync(themeJsonPath)) continue;
+      try {
+        const data = JSON.parse(fs.readFileSync(themeJsonPath, "utf8")) as {
+          settings?: { color?: { duotone?: DuotonePreset[] } };
+        };
+        pushPresets(data.settings?.color?.duotone);
+      } catch {
+        /* skip */
+      }
+    }
+  }
+
+  for (const rel of ["theme/global-styles.json", "assets/theme/global-styles.json"]) {
+    const p = path.join(dataDir, rel);
+    if (!fs.existsSync(p)) continue;
+    try {
+      const data = JSON.parse(fs.readFileSync(p, "utf8")) as {
+        settings?: { color?: { duotone?: DuotonePreset[] } };
+        styles?: unknown;
+      };
+      // Some exports nest under settings.color.duotone; others under theme JSON shape.
+      pushPresets(data.settings?.color?.duotone);
+    } catch {
+      /* skip */
+    }
+  }
+
+  return out;
+}
+
+/**
+ * Emit WP-compatible duotone CSS custom properties + SVG filter defs.
+ * global-styles export often omits --wp--preset--duotone--* and the SVG never
+ * lands in the React DOM, so site logos keep their source colors instead of
+ * the white/black duotone seen on WordPress.
+ */
+export function writeThemeDuotoneAssets(projectAssetsDir: string, dataDir: string): {
+  cssHref: string;
+  svgHref: string;
+} | null {
+  const presets = discoverThemeDuotonePresets(dataDir);
+  if (!presets.length) return null;
+
+  const cssChunks: string[] = [
+    "/* Theme duotone presets (from theme.json — often missing from exported global-styles) */",
+    ":root {",
+  ];
+  const svgs: string[] = [];
+
+  for (const preset of presets) {
+    const slug = preset.slug!;
+    const filterId = `wp-duotone-${slug}`;
+    const svg = buildDuotoneFilterSvg(filterId, preset.colors!);
+    if (!svg) continue;
+    cssChunks.push(`  --wp--preset--duotone--${slug}: url('#${filterId}');`);
+    svgs.push(svg);
+  }
+  cssChunks.push("}");
+
+  if (!svgs.length) return null;
+
+  const cssOut = path.join(projectAssetsDir, "inline", "styles", "theme-duotone.css");
+  const svgOut = path.join(projectAssetsDir, "inline", "duotone-filters.html");
+  fs.mkdirSync(path.dirname(cssOut), { recursive: true });
+  fs.mkdirSync(path.dirname(svgOut), { recursive: true });
+  fs.writeFileSync(cssOut, `${cssChunks.join("\n")}\n`, "utf8");
+  fs.writeFileSync(svgOut, `${svgs.join("\n")}\n`, "utf8");
+
+  return { cssHref: THEME_DUOTONE_STYLE_HREF, svgHref: THEME_DUOTONE_SVG_HREF };
+}
+
+/** Map slug → hex from theme markup ColorValue attrs and known aliases. */
+function discoverOrphanThemeColors(dataDir: string): Record<string, string> {
+  const found: Record<string, string> = {};
+  const themeRoot = path.join(dataDir, "theme");
+  if (!fs.existsSync(themeRoot)) return found;
+
+  const walk = (dir: string) => {
+    for (const name of fs.readdirSync(dir)) {
+      const full = path.join(dir, name);
+      let st: fs.Stats;
+      try {
+        st = fs.statSync(full);
+      } catch {
+        continue;
+      }
+      if (st.isDirectory()) {
+        if (name === "node_modules" || name === ".git") continue;
+        walk(full);
+        continue;
+      }
+      if (!/\.(html|php|json)$/i.test(name)) continue;
+      let text = "";
+      try {
+        text = fs.readFileSync(full, "utf8");
+      } catch {
+        continue;
+      }
+      // Prefer paired attrs: "fooColor":"slug","fooColorValue":"#hex"
+      for (const m of text.matchAll(
+        /"([a-zA-Z]+Color)"\s*:\s*"([a-z0-9-]+)"\s*,\s*"\1Value"\s*:\s*"(#[0-9a-fA-F]{3,8})"/g,
+      )) {
+        found[m[2]] = m[3];
+      }
+      // Reverse order: "fooColorValue":"#hex","fooColor":"slug"
+      for (const m of text.matchAll(
+        /"([a-zA-Z]+)ColorValue"\s*:\s*"(#[0-9a-fA-F]{3,8})"\s*,\s*"\1Color"\s*:\s*"([a-z0-9-]+)"/g,
+      )) {
+        found[m[3]] = m[2];
+      }
+    }
+  };
+  walk(themeRoot);
+
+  // Resolve theme.json palette for alias fallbacks (custom-hover → gold accent).
+  let palette: Array<{ slug?: string; color?: string }> = [];
+  for (const slug of fs.existsSync(themeRoot) ? fs.readdirSync(themeRoot) : []) {
+    const themeJson = path.join(themeRoot, slug, "theme.json");
+    if (!fs.existsSync(themeJson)) continue;
+    try {
+      const data = JSON.parse(fs.readFileSync(themeJson, "utf8")) as {
+        settings?: { color?: { palette?: Array<{ slug?: string; color?: string }> } };
+      };
+      palette = data.settings?.color?.palette ?? palette;
+      if (palette.length) break;
+    } catch {
+      /* ignore */
+    }
+  }
+  const bySlug = Object.fromEntries(
+    palette.filter((c) => c.slug && c.color).map((c) => [c.slug!, c.color!]),
+  );
+
+  // custom-hover is the barber gold accent; never leave it as white from iconColorValue noise.
+  if (!found["custom-hover"] || /^#fff(fff)?$/i.test(found["custom-hover"])) {
+    found["custom-hover"] =
+      bySlug["custom-color-2"] || bySlug["custom-color-1"] || found["custom-hover"] || "#af804d";
+  }
+  // Muted description text — unpublished custom-color-6; soft gray on dark bg.
+  if (!found["custom-color-6"]) {
+    found["custom-color-6"] = "#b0b0b0";
+  }
+
+  return found;
 }
 
 function pushIfExists(styles: string[], assetsRoot: string, rel: string): void {
@@ -354,6 +726,153 @@ const CRITICAL_JS: string[] = [
   "plugins/elementor/assets/lib/swiper/v8/swiper.min.js",
   "plugins/slide-everything-for-elementor/scripts/main.js",
 ];
+
+/** Core WP design CSS/JS that must exist after convert (never leave these missing). */
+export const CRITICAL_WP_INCLUDES_ASSETS: string[] = [
+  "css/dist/theme/design-tokens.min.css",
+  "css/dist/theme/design-tokens.css",
+  "css/dist/block-library/style.min.css",
+  "css/dist/block-library/style.css",
+  "js/jquery/jquery.min.js",
+  "js/jquery/jquery-migrate.min.js",
+];
+
+/**
+ * Ensure WP design-token CSS + jQuery land under public/assets/wp-includes.
+ * Recovers from export roots or an optional live WordPress URL.
+ */
+export async function ensureWpIncludesDesignAssets(
+  projectAssetsDir: string,
+  opts?: { fallbackRoots?: string[]; wordpressUrl?: string },
+): Promise<string[]> {
+  const copied: string[] = [];
+  const vendorRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "vendor");
+  const roots = [
+    vendorRoot,
+    ...(opts?.fallbackRoots ?? []),
+  ];
+
+  for (const rel of CRITICAL_WP_INCLUDES_ASSETS) {
+    const dest = path.join(projectAssetsDir, "wp-includes", rel);
+    if (fs.existsSync(dest) && fs.statSync(dest).size > 0) continue;
+
+    let placed = false;
+    for (const root of roots) {
+      if (!root || !fs.existsSync(root)) continue;
+      const candidates = [
+        path.join(root, "wp-includes", rel),
+        path.join(root, "assets", "wp-includes", rel),
+        path.join(root, "public", "assets", "wp-includes", rel),
+        path.join(root, "public", "wp-includes", rel),
+      ];
+      // Allow .css to satisfy a missing .min.css request (and vice versa).
+      const alt =
+        rel.endsWith(".min.css")
+          ? rel.replace(/\.min\.css$/i, ".css")
+          : rel.endsWith(".css")
+            ? rel.replace(/\.css$/i, ".min.css")
+            : null;
+      if (alt) {
+        candidates.push(
+          path.join(root, "wp-includes", alt),
+          path.join(root, "assets", "wp-includes", alt),
+        );
+      }
+      const src = candidates.find((p) => fs.existsSync(p) && fs.statSync(p).size > 0);
+      if (!src) continue;
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.copyFileSync(src, dest);
+      copied.push(rel);
+      placed = true;
+      break;
+    }
+
+    if (placed || (fs.existsSync(dest) && fs.statSync(dest).size > 0)) continue;
+
+    if (opts?.wordpressUrl) {
+      try {
+        const base = opts.wordpressUrl.replace(/\/$/, "");
+        const url = `${base}/wp-includes/${rel}`;
+        const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+        if (res.ok) {
+          const buf = Buffer.from(await res.arrayBuffer());
+          if (buf.length >= 16) {
+            fs.mkdirSync(path.dirname(dest), { recursive: true });
+            fs.writeFileSync(dest, buf);
+            copied.push(rel);
+            continue;
+          }
+        }
+      } catch {
+        /* live WP may be offline */
+      }
+    }
+
+    // Public mirror for design-tokens (WP core) so convert never ships without them.
+    if (/design-tokens/i.test(rel)) {
+      try {
+        const mirror = `https://raw.githubusercontent.com/WordPress/WordPress/master/wp-includes/${rel}`;
+        const res = await fetch(mirror, { signal: AbortSignal.timeout(12000) });
+        if (res.ok) {
+          const buf = Buffer.from(await res.arrayBuffer());
+          if (buf.length >= 16) {
+            fs.mkdirSync(path.dirname(dest), { recursive: true });
+            fs.writeFileSync(dest, buf);
+            copied.push(rel);
+            continue;
+          }
+        }
+      } catch {
+        /* offline */
+      }
+    }
+
+    // jQuery from public CDN when WP export omitted the file.
+    if (/js\/jquery\/jquery\.min\.js$/i.test(rel)) {
+      try {
+        const res = await fetch("https://code.jquery.com/jquery-3.7.1.min.js", {
+          signal: AbortSignal.timeout(12000),
+        });
+        if (res.ok) {
+          const buf = Buffer.from(await res.arrayBuffer());
+          if (buf.length >= 16) {
+            fs.mkdirSync(path.dirname(dest), { recursive: true });
+            fs.writeFileSync(dest, buf);
+            copied.push(rel);
+          }
+        }
+      } catch {
+        /* offline */
+      }
+    }
+    if (/js\/jquery\/jquery-migrate\.min\.js$/i.test(rel)) {
+      try {
+        const res = await fetch("https://code.jquery.com/jquery-migrate-3.4.1.min.js", {
+          signal: AbortSignal.timeout(12000),
+        });
+        if (res.ok) {
+          const buf = Buffer.from(await res.arrayBuffer());
+          if (buf.length >= 16) {
+            fs.mkdirSync(path.dirname(dest), { recursive: true });
+            fs.writeFileSync(dest, buf);
+            copied.push(rel);
+            continue;
+          }
+        }
+      } catch {
+        /* offline */
+      }
+      // Prefer a present stub over a missing design-adjacent script.
+      if (!fs.existsSync(dest) || fs.statSync(dest).size === 0) {
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+        fs.writeFileSync(dest, "/* jquery-migrate stub — full file missing from export */\n");
+        copied.push(rel);
+      }
+    }
+  }
+
+  return copied;
+}
 
 /**
  * Copy missing critical CSS into the project assets tree from fallback WP roots

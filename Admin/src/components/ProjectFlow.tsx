@@ -13,6 +13,26 @@ import {
 } from "./ui";
 import { cx } from "../lib/cx";
 
+/** Intentional export notes — not counted as import failures. */
+function isInformationalAuditWarning(w: string): boolean {
+  return (
+    /Skipped \d+ Gutenberg editor block stylesheet/i.test(w) ||
+    /Skipped wp-includes block stylesheet/i.test(w) ||
+    // Surfaced separately as the Missing required assets list.
+    /\d+ required asset file\(s\) missing on disk/i.test(w)
+  );
+}
+
+function splitAuditWarnings(warnings: string[]) {
+  const informational: string[] = [];
+  const actionable: string[] = [];
+  for (const w of warnings) {
+    if (isInformationalAuditWarning(w)) informational.push(w);
+    else actionable.push(w);
+  }
+  return { informational, actionable };
+}
+
 export interface SyncFromWpCreds {
   wpUrl: string;
   username: string;
@@ -290,9 +310,14 @@ export function ProjectFlow({
                     checked={copyMedia}
                     onChange={setCopyMedia}
                     label="Include media files"
-                    disabled={syncRunning || uploadBusy}
+                    disabled={syncBusy || uploadBusy}
                   />
 
+                  <Hint>
+                    {copyMedia
+                      ? "Downloads referenced images/fonts into the export (works for localhost and remote)."
+                      : "Skips bulk media copy. Logos referenced in header/footer are still included."}
+                  </Hint>
                   <div className="flex flex-wrap items-center gap-2">
                     <Button type="button" variant="default" disabled={syncRunning || uploadBusy} onClick={submitSync}>
                       {syncRunning ? "Syncing…" : scrapeStep === "done" ? "Resync" : "Sync from URL"}
@@ -405,15 +430,33 @@ export function ProjectFlow({
       </ol>
 
       {audit &&
-        (audit.summary || audit.unresolvedShortcodes.length > 0 || audit.warnings.length > 0) && (
+        (() => {
+          const missingAssets = audit.missingAssets ?? [];
+          const { informational, actionable } = splitAuditWarnings(audit.warnings ?? []);
+          const fidelityFail =
+            audit.assetFidelity && audit.assetFidelity.guardrailPassed === false ? 1 : 0;
+          const issueCount =
+            audit.unresolvedShortcodes.length +
+            missingAssets.length +
+            actionable.length +
+            fidelityFail;
+          const show =
+            audit.summary ||
+            issueCount > 0 ||
+            informational.length > 0 ||
+            audit.assetFidelity;
+
+          if (!show) return null;
+
+          return (
           <section className="mb-6 overflow-hidden rounded-3xl bg-studio-surface px-4 pb-4 shadow-studio">
             <div className="flex items-center justify-between border-b border-studio-border px-0 py-3">
               <h3 className="m-0 text-sm font-bold">Import audit</h3>
-              {audit.unresolvedShortcodes.length === 0 && audit.warnings.length === 0 ? (
+              {issueCount === 0 ? (
                 <span className="rounded-full bg-ok-soft px-2.5 py-1 text-[0.7rem] font-bold text-ok">Clean</span>
               ) : (
                 <span className="rounded-full bg-danger-soft px-2.5 py-1 text-[0.7rem] font-bold text-danger">
-                  {audit.unresolvedShortcodes.length + audit.warnings.length} issue(s)
+                  {issueCount} issue(s)
                 </span>
               )}
             </div>
@@ -438,11 +481,71 @@ export function ProjectFlow({
               </ul>
             )}
 
-            {audit.warnings.length > 0 && (
+            {audit.assetFidelity && (
+              <div className="mt-3">
+                <h4 className="mt-0 mb-2 text-xs font-semibold tracking-wide text-studio-muted uppercase">
+                  Asset fidelity ({audit.assetFidelity.phase})
+                </h4>
+                <ul className="m-0 grid list-none grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-3 p-0 text-sm text-studio-muted">
+                  <li className="rounded-2xl bg-studio-row px-3.5 py-3">
+                    <strong className="text-studio-text">{audit.assetFidelity.stylesMissing}</strong>/
+                    {audit.assetFidelity.stylesDeclared} CSS missing
+                  </li>
+                  <li className="rounded-2xl bg-studio-row px-3.5 py-3">
+                    <strong className="text-studio-text">{audit.assetFidelity.scriptsMissing}</strong>/
+                    {audit.assetFidelity.scriptsDeclared} JS missing
+                  </li>
+                  <li className="rounded-2xl bg-studio-row px-3.5 py-3">
+                    <strong className="text-studio-text">{audit.assetFidelity.canvasStylesMissing}</strong> canvas CSS gaps
+                  </li>
+                  <li className="rounded-2xl bg-studio-row px-3.5 py-3">
+                    {(audit.assetFidelity.bytesPresent / 1024).toFixed(0)} KB on disk
+                  </li>
+                  <li className="rounded-2xl bg-studio-row px-3.5 py-3">
+                    {audit.assetFidelity.guardrailPassed ? "Guardrail ✓" : "Guardrail ✗"}
+                  </li>
+                </ul>
+                {!audit.assetFidelity.guardrailPassed && audit.assetFidelity.failures.length > 0 && (
+                  <ul className="mt-2 mb-0 list-disc pl-5 text-sm text-danger">
+                    {audit.assetFidelity.failures.map((f, i) => (
+                      <li key={i}>{f}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+
+            {missingAssets.length > 0 && (
+              <div className="mt-3">
+                <h4 className="mt-0 mb-2 text-xs font-semibold tracking-wide text-studio-muted uppercase">
+                  Missing required assets
+                </h4>
+                <ul className="m-0 list-disc pl-5 text-sm text-danger">
+                  {missingAssets.map((p, i) => (
+                    <li key={i}>
+                      <code>{p}</code>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {actionable.length > 0 && (
               <div className="mt-3">
                 <h4 className="mt-0 mb-2 text-xs font-semibold tracking-wide text-studio-muted uppercase">Warnings</h4>
                 <ul className="m-0 list-disc pl-5 text-sm text-studio-muted">
-                  {audit.warnings.map((w, i) => (
+                  {actionable.map((w, i) => (
+                    <li key={i}>{w}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {informational.length > 0 && (
+              <div className="mt-3">
+                <h4 className="mt-0 mb-2 text-xs font-semibold tracking-wide text-studio-muted uppercase">Notes</h4>
+                <ul className="m-0 list-disc pl-5 text-sm text-studio-muted">
+                  {informational.map((w, i) => (
                     <li key={i}>{w}</li>
                   ))}
                 </ul>
@@ -483,7 +586,8 @@ export function ProjectFlow({
               </div>
             )}
           </section>
-        )}
+          );
+        })()}
 
       {(project.phase || project.logs) && (
         <section className="mb-6 overflow-hidden rounded-3xl bg-studio-surface shadow-studio">

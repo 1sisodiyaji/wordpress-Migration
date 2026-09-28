@@ -114,6 +114,7 @@ export function readPluginExportBundle(source: string): PluginExportBundle {
   const audit = readJson<PluginExportAudit>(root, files.audit ?? "audit/report.json", {
     unresolvedShortcodes: [],
     warnings: [],
+    missingAssets: [],
   });
 
   const templatesIndex = readJson<PluginExportTemplate[]>(root, "templates/index.json", []);

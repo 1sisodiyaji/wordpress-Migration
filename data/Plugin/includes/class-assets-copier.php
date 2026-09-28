@@ -35,6 +35,13 @@ class Assets_Copier {
 	private $copied_files = 0;
 
 	/**
+	 * Count of intentionally skipped Gutenberg editor-only block stylesheets.
+	 *
+	 * @var int
+	 */
+	private $skipped_editor_block_styles = 0;
+
+	/**
 	 * @param Bundle_Writer $writer Bundle writer.
 	 */
 	public function __construct( Bundle_Writer $writer ) {
@@ -69,6 +76,13 @@ class Assets_Copier {
 		// copy of /wp-includes/blocks/*/style.min.css can miss when the file was
 		// only referenced (src set, no inline dump).
 		$this->copy_core_block_library_css();
+
+		if ( $this->skipped_editor_block_styles > 0 ) {
+			$this->warnings[] = sprintf(
+				'Skipped %d Gutenberg editor block stylesheet(s) (editor-only, not needed on front-end).',
+				$this->skipped_editor_block_styles
+			);
+		}
 
 		return array(
 			'copied'   => $this->copied_files,
@@ -166,7 +180,21 @@ class Assets_Copier {
 						$this->warnings[] = sprintf( 'wp-includes stylesheet missing on disk: %s', $src );
 					}
 				} elseif ( $includes_rel && preg_match( '#^blocks/#', $includes_rel ) ) {
-					$this->warnings[] = sprintf( 'Skipped wp-includes block stylesheet (not allowed): %s', $src );
+					// Editor chrome / editor.min.css — count only; summary emitted once.
+					$this->skipped_editor_block_styles++;
+				}
+			} elseif ( 'scripts' === $kind ) {
+				// Frontend jQuery (and migrate) — needed for Elementor / some FSE widgets.
+				$includes_rel = $this->wp_includes_rel_from_url( $src );
+				if ( $includes_rel && $this->is_allowed_wp_includes_script( $handle, $includes_rel ) ) {
+					$source = ABSPATH . 'wp-includes/' . $includes_rel;
+					if ( is_readable( $source ) ) {
+						$dest = 'assets/wp-includes/' . $includes_rel;
+						if ( $this->writer->copy( $source, $dest ) ) {
+							$entry['bundlePath'] = $dest;
+							$this->copied_files++;
+						}
+					}
 				}
 			}
 		}
@@ -380,6 +408,8 @@ class Assets_Copier {
 			'css/dist/block-library/theme.css',
 			'css/dist/block-library/common.min.css',
 			'css/dist/block-library/common.css',
+			'css/dist/theme/design-tokens.min.css',
+			'css/dist/theme/design-tokens.css',
 			'css/classic-themes.min.css',
 			'css/classic-themes.css',
 		);
@@ -534,13 +564,47 @@ class Assets_Copier {
 		if ( preg_match( '#css/dist/block-library/(style|theme|common)(\.min)?\.css$#', $rel ) ) {
 			return true;
 		}
+		// WP 6.8+ design tokens (handle: wp-theme) — required for FSE color/spacing fidelity.
+		if ( preg_match( '#css/dist/theme/(design-tokens|theme-json)(\.min)?\.css$#', $rel ) ) {
+			return true;
+		}
 		if ( preg_match( '#blocks/[a-z0-9-]+/(style|theme)(\.min)?\.css$#', $rel ) ) {
 			return true;
 		}
 		if ( preg_match( '#css/classic-themes(\.min)?\.css$#', $rel ) ) {
 			return true;
 		}
-		if ( in_array( $handle, array( 'wp-block-library', 'wp-block-library-theme', 'classic-theme-styles' ), true ) ) {
+		if ( in_array(
+			$handle,
+			array(
+				'wp-block-library',
+				'wp-block-library-theme',
+				'classic-theme-styles',
+				'wp-theme',
+				'wp-theme-json',
+			),
+			true
+		) ) {
+			return true;
+		}
+		return false;
+	}
+
+	/**
+	 * Frontend-only wp-includes scripts (never editor/vendor React).
+	 *
+	 * @param string $handle Script handle.
+	 * @param string $rel    Path under wp-includes.
+	 * @return bool
+	 */
+	private function is_allowed_wp_includes_script( $handle, $rel ) {
+		$handle = strtolower( (string) $handle );
+		$rel    = strtolower( (string) $rel );
+
+		if ( preg_match( '/^(jquery-core|jquery-migrate|jquery)$/', $handle ) ) {
+			return true;
+		}
+		if ( preg_match( '#^js/jquery/#', $rel ) ) {
 			return true;
 		}
 		return false;

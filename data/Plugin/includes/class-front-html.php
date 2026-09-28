@@ -176,7 +176,15 @@ class Front_Html {
 	}
 
 	/**
-	 * Extract the main content slot (Neve entry-content / main).
+	 * Extract the main content slot (Neve entry-content / FSE page body / classic #content).
+	 *
+	 * Block themes often place hero/banner patterns BETWEEN the header
+	 * template-part and <main> (e.g. wellness-center front-page). Prefer the
+	 * chrome-stripped FSE tree so those sections export into the page body.
+	 *
+	 * Classic themes (Abiz / Techboost frontpage): content lives in
+	 * `#content.abiz-theme-data` between get_header() and get_footer(), often
+	 * filled by a companion plugin action (e.g. daddy_plus_abiz_frontpage).
 	 *
 	 * @param string $html Full page HTML.
 	 * @return string
@@ -185,10 +193,18 @@ class Front_Html {
 		$html = (string) $html;
 
 		// Block themes (FSE): designed homepage lives in wp-site-blocks.
-		// Prefer <main> only so layout header/footer are not duplicated in page body.
 		if ( preg_match( '/<div\b[^>]*class="[^"]*\bwp-site-blocks\b[^"]*"[^>]*>/i', $html, $m, PREG_OFFSET_CAPTURE ) ) {
 			$chunk = self::extract_balanced_div( $html, (int) $m[0][1] );
 			if ( $chunk && strlen( wp_strip_all_tags( $chunk ) ) > 40 ) {
+				// Keep everything between header/footer template parts — including
+				// patterns that sit outside <main> (hero / banner sections).
+				$stripped = self::strip_fse_chrome( $chunk );
+				if ( $stripped && strlen( wp_strip_all_tags( $stripped ) ) > 40 ) {
+					// Unwrap a lone <main> so its sections sit alongside outer patterns
+					// (banner + pricing + …) as peer content for the converter.
+					return self::unwrap_lone_main( $stripped );
+				}
+				// Fallback: <main> only (classic FSE posts with no outer patterns).
 				if ( preg_match( '/<main\b[^>]*>/i', $chunk, $main_m, PREG_OFFSET_CAPTURE ) ) {
 					$main = self::extract_balanced_element( $chunk, (int) $main_m[0][1], 'main' );
 					if ( $main ) {
@@ -198,11 +214,6 @@ class Front_Html {
 						}
 						return $main;
 					}
-				}
-				// Fallback: strip header/footer template parts from the FSE tree.
-				$stripped = self::strip_fse_chrome( $chunk );
-				if ( $stripped && strlen( wp_strip_all_tags( $stripped ) ) > 40 ) {
-					return $stripped;
 				}
 				return $chunk;
 			}
@@ -230,6 +241,67 @@ class Front_Html {
 				}
 			}
 			return $inner;
+		}
+
+		// Classic themes: primary content wrappers (Abiz `#content.abiz-theme-data`, etc.).
+		$classic = self::extract_classic_content( $html );
+		if ( '' !== $classic ) {
+			return $classic;
+		}
+
+		return '';
+	}
+
+	/**
+	 * Classic / hybrid theme content slot (Abiz, Astra-like shells, Bootstrap themes).
+	 *
+	 * @param string $html Full page HTML.
+	 * @return string
+	 */
+	private static function extract_classic_content( $html ) {
+		$html = (string) $html;
+
+		$open_patterns = array(
+			'/<div\b[^>]*\bid=["\']content["\'][^>]*>/i',
+			'/<div\b[^>]*class="[^"]*\babiz-theme-data\b[^"]*"[^>]*>/i',
+			'/<div\b[^>]*class="[^"]*\bsite-content\b[^"]*"[^>]*>/i',
+			'/<div\b[^>]*\bid=["\']primary["\'][^>]*>/i',
+			'/<div\b[^>]*class="[^"]*\bcontent-area\b[^"]*"[^>]*>/i',
+			'/<div\b[^>]*class="[^"]*\bsite-main\b[^"]*"[^>]*>/i',
+		);
+
+		foreach ( $open_patterns as $pattern ) {
+			if ( ! preg_match( $pattern, $html, $m, PREG_OFFSET_CAPTURE ) ) {
+				continue;
+			}
+			$chunk = self::extract_balanced_div( $html, (int) $m[0][1] );
+			if ( ! $chunk ) {
+				continue;
+			}
+			$inner = self::inner_html( $chunk );
+			$text  = trim( wp_strip_all_tags( (string) $inner ) );
+			// Real homepage modules (slider/sections) or substantial copy.
+			if ( strlen( $text ) > 40 || preg_match( '/<(section|article|div)\b/i', (string) $inner ) ) {
+				return trim( (string) $inner );
+			}
+		}
+
+		// Last resort: everything between the first </header> and the first <footer.
+		if ( preg_match( '/<\/header\s*>/i', $html, $hm, PREG_OFFSET_CAPTURE ) ) {
+			$start = (int) $hm[0][1] + strlen( $hm[0][0] );
+			if ( preg_match( '/<footer\b/i', $html, $fm, PREG_OFFSET_CAPTURE ) ) {
+				$end = (int) $fm[0][1];
+				if ( $end > $start ) {
+					$mid = trim( substr( $html, $start, $end - $start ) );
+					// Drop the Abiz content wrapper open/close if present but empty of siblings.
+					$mid = preg_replace( '/^<div\b[^>]*\bid=["\']content["\'][^>]*>/i', '', $mid );
+					$mid = preg_replace( '/<\/div>\s*$/i', '', (string) $mid );
+					$mid = trim( (string) $mid );
+					if ( strlen( wp_strip_all_tags( $mid ) ) > 40 || preg_match( '/<(section|article|div)\b/i', $mid ) ) {
+						return $mid;
+					}
+				}
+			}
 		}
 
 		return '';
@@ -370,6 +442,30 @@ class Front_Html {
 	}
 
 	/**
+	 * If markup is "outer siblings + one <main>…</main>", replace that main with
+	 * its children so FSE patterns outside main stay peers of sections inside it.
+	 *
+	 * @param string $html Chrome-stripped FSE body.
+	 * @return string
+	 */
+	private static function unwrap_lone_main( $html ) {
+		$html = trim( (string) $html );
+		if ( ! preg_match( '/<main\b[^>]*>/i', $html, $m, PREG_OFFSET_CAPTURE ) ) {
+			return $html;
+		}
+		$start = (int) $m[0][1];
+		$main  = self::extract_balanced_element( $html, $start, 'main' );
+		if ( ! $main ) {
+			return $html;
+		}
+		$inner = self::inner_html( $main );
+		if ( '' === trim( (string) $inner ) ) {
+			return $html;
+		}
+		return trim( substr( $html, 0, $start ) . $inner . substr( $html, $start + strlen( $main ) ) );
+	}
+
+	/**
 	 * Remove FSE header/footer template parts from a wp-site-blocks chunk.
 	 *
 	 * @param string $html FSE markup.
@@ -398,5 +494,59 @@ class Front_Html {
 			}
 		}
 		return trim( $html );
+	}
+
+	/**
+	 * Extract SVG filter defs with wp-duotone-* ids from front HTML.
+	 * These are required for .wp-duotone-* site logos (white/black etc.).
+	 *
+	 * @param string $html Full front-page HTML.
+	 * @return string Concatenated SVG markup (may be empty).
+	 */
+	public static function extract_duotone_svgs( $html ) {
+		$html = (string) $html;
+		if ( '' === $html || false === stripos( $html, 'wp-duotone' ) ) {
+			return '';
+		}
+		$out = '';
+		if ( preg_match_all( '/<svg\b[^>]*>[\s\S]*?<\/svg>/i', $html, $matches ) ) {
+			foreach ( $matches[0] as $svg ) {
+				if ( false !== stripos( $svg, 'wp-duotone' ) ) {
+					$out .= $svg . "\n";
+				}
+			}
+		}
+		return trim( $out );
+	}
+
+	/**
+	 * Pull --wp--preset--duotone--* custom properties from printed global-styles.
+	 *
+	 * @param string $html Full front-page HTML.
+	 * @return string CSS block for :root (may be empty).
+	 */
+	public static function extract_duotone_css_vars( $html ) {
+		$html = (string) $html;
+		$vars = array();
+		if ( preg_match_all(
+			'/--wp--preset--duotone--([a-z0-9-]+)\s*:\s*([^;}+]+);/i',
+			$html,
+			$matches,
+			PREG_SET_ORDER
+		) ) {
+			foreach ( $matches as $m ) {
+				$slug = strtolower( $m[1] );
+				$vars[ $slug ] = trim( $m[2] );
+			}
+		}
+		if ( empty( $vars ) ) {
+			return '';
+		}
+		$lines = array( '/* Duotone presets captured from front HTML */', ':root {' );
+		foreach ( $vars as $slug => $value ) {
+			$lines[] = sprintf( '  --wp--preset--duotone--%s: %s;', $slug, $value );
+		}
+		$lines[] = '}';
+		return implode( "\n", $lines );
 	}
 }

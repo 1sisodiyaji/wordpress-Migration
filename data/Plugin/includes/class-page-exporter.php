@@ -135,11 +135,20 @@ class Page_Exporter {
 
 		// Empty post_content / unresolved LMS shortcodes / stub pages: crawl the live page.
 		// Blog (posts page) always uses the live posts index — page body is often a stub.
+		// Classic theme frontpages (Abiz custom-home / frontpage.php) render via hooks —
+		// post_content is empty even when the live page has full sections.
 		$is_posts_page = ( (int) get_option( 'page_for_posts' ) === $post_id );
-		if ( $is_posts_page || Front_Html::needs_live_content( $rendered ) ) {
+		$is_front_tpl  = is_string( $route['template'] ?? null )
+			&& (false !== stripos( (string) $route['template'], 'frontpage' )
+				|| false !== stripos( (string) $route['template'], 'custom-home' )
+				|| false !== stripos( (string) $route['template'], 'front-page' ));
+		$is_home_route = isset( $route['type'] ) && 'home' === $route['type'];
+		if ( $is_posts_page || $is_front_tpl || $is_home_route || Front_Html::needs_live_content( $rendered ) ) {
 			$live = $this->capture_live_content( $post, $route, $is_posts_page );
 			if ( $live ) {
 				$rendered = $live;
+			} elseif ( $is_front_tpl || $is_home_route ) {
+				$this->warnings[] = 'Homepage live crawl returned no content slot. For Abiz/Techboost, ensure the Daddy Plus (or theme companion) plugin is active so frontpage sections render.';
 			}
 		}
 

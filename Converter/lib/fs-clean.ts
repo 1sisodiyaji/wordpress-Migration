@@ -65,12 +65,17 @@ export function rmPathSafe(target: string): void {
 }
 
 /**
- * Imported WP assets live under public/wp-content and public/inline.
+ * Imported WP assets live under public/{wp-content,wp-includes,inline,theme}.
  * Generated Vite files live under public/assets — never wipe the import roots.
  */
-const PRESERVED_PUBLIC_ENTRIES = new Set(["wp-content", "inline"]);
+const PRESERVED_PUBLIC_ENTRIES = new Set([
+  "wp-content",
+  "wp-includes",
+  "inline",
+  "theme",
+]);
 
-/** Wipe generated Vite public/ tree while keeping imported wp-content + inline. */
+/** Wipe generated Vite public/ tree while keeping imported asset roots. */
 export function cleanGeneratedPublic(projectDir: string): void {
   const publicDir = path.join(projectDir, "public");
   if (!fs.existsSync(publicDir)) return;

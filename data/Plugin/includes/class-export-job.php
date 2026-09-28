@@ -138,9 +138,41 @@ class Export_Job {
 			$this->warnings[] = 'No CSS/JS files were copied. Check that wp-content is readable inside the container.';
 		}
 
-		// Media map.
+		// Duotone SVG filters + CSS vars (site logos). Prefer front HTML capture;
+		// Converter also regenerates from theme.json when these are missing.
+		$front_html = Front_Html::fetch( home_url( '/' ) );
+		if ( $front_html ) {
+			$duotone_svgs = Front_Html::extract_duotone_svgs( $front_html );
+			if ( $duotone_svgs ) {
+				$writer->write( 'assets/inline/duotone-filters.html', $duotone_svgs . "\n" );
+			}
+			$duotone_css = Front_Html::extract_duotone_css_vars( $front_html );
+			if ( $duotone_css ) {
+				$writer->write( 'assets/inline/styles/theme-duotone.css', $duotone_css . "\n" );
+			}
+		}
+
+		// Media map (+ optional full library copy).
 		$media_mapper = new Media_Mapper( $writer, (bool) $this->args['copy_media'] );
 		$media        = $media_mapper->export();
+
+		// Always copy uploads referenced by exported HTML (logos, footer images…),
+		// even when copy_media is unchecked — otherwise Converter rewrites src to
+		// /assets/... and the file 404s.
+		$referenced_media = $media_mapper->copy_referenced_uploads( $writer->root() );
+		if ( $referenced_media > 0 ) {
+			// Surface in stats via counts after we build the manifest.
+		}
+
+		// Full theme tree (theme.json, templates, parts, patterns, assets…).
+		$theme_exporter = new Theme_Exporter( $writer );
+		$theme_result   = $theme_exporter->export();
+		$this->warnings = array_merge( $this->warnings, $theme_exporter->warnings() );
+
+		// SEO package (Yoast / Rank Math / core + head scrape).
+		$seo_exporter = new Seo_Exporter( $writer );
+		$seo_result   = $seo_exporter->export( $route_records );
+		$this->warnings = array_merge( $this->warnings, $seo_exporter->warnings() );
 
 		// Write section files.
 		$writer->write_json( 'site.json', $site );
@@ -188,6 +220,10 @@ class Export_Job {
 				'menus'                => count( $layout['menus'] ),
 				'media'                => count( $media ),
 				'assetsCopied'         => $copy_result['copied'],
+				'themeFilesCopied'     => $theme_result['copied'],
+				'mediaFilesCopied'     => $referenced_media + ( (bool) $this->args['copy_media'] ? count( $media ) : 0 ),
+				'seoPages'             => $seo_result['pages'],
+				'seoRedirects'         => $seo_result['redirects'],
 				'unresolvedShortcodes' => count( $audit['unresolvedShortcodes'] ),
 			),
 			'files'      => array(
@@ -196,8 +232,14 @@ class Export_Job {
 				'routes' => 'routes.json',
 				'assets' => 'assets/manifest.json',
 				'media'  => 'media/map.json',
+				'theme'  => 'theme/index.json',
+				'seo'    => 'seo/site.json',
 				'audit'  => 'audit/report.json',
 			),
+			'seo'        => array(
+				'provider' => $seo_result['provider'],
+			),
+			'theme'      => $theme_result['index'],
 		);
 		$writer->write_json( 'manifest.json', $manifest );
 

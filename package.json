@@ -8,6 +8,7 @@
     "admin": "tsx Admin/server/index.ts",
     "converter": "tsx Converter/server/index.ts",
     "generate": "tsx Converter/index.ts",
+    "audit:assets": "tsx Converter/audit-assets.ts",
     "build": "vite build --config Admin/vite.config.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint Converter Admin",

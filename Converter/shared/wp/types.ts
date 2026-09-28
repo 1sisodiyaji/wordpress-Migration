@@ -310,6 +310,7 @@ export interface PluginExportMediaItem {
 export interface PluginExportAudit {
   unresolvedShortcodes: Array<{ tag: string; postId?: number; path?: string }>;
   warnings: string[];
+  missingAssets?: string[];
 }
 
 export interface PluginExportManifest {

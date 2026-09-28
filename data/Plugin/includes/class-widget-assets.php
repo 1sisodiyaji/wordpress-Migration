@@ -127,7 +127,7 @@ class Widget_Assets {
 	);
 
 	/**
-	 * Always-safe Elementor / ElementsKit front-end assets.
+	 * Elementor free front-end styles (when Elementor is loaded).
 	 *
 	 * @var string[]
 	 */
@@ -137,13 +137,21 @@ class Widget_Assets {
 		'plugins/elementor/assets/css/widget-heading.min.css',
 		'plugins/elementor/assets/css/widget-image.min.css',
 		'plugins/elementor/assets/css/widget-divider.min.css',
+	);
+
+	/**
+	 * ElementsKit front-end styles — only when ElementsKit is active or widgets require it.
+	 *
+	 * @var string[]
+	 */
+	const ELEMENTSKIT_BASE_STYLES = array(
 		'plugins/elementskit-lite/modules/elementskit-icon-pack/assets/css/ekiticons.css',
 		'plugins/elementskit-lite/widgets/init/assets/css/widget-styles.css',
 		'plugins/elementskit-lite/widgets/init/assets/css/responsive.css',
 	);
 
 	/**
-	 * Elementor front-end runtime (always needed when Elementor is active).
+	 * Elementor free front-end runtime (when Elementor is loaded).
 	 *
 	 * @var string[]
 	 */
@@ -151,6 +159,14 @@ class Widget_Assets {
 		'plugins/elementor/assets/js/webpack.runtime.min.js',
 		'plugins/elementor/assets/js/frontend-modules.min.js',
 		'plugins/elementor/assets/js/frontend.min.js',
+	);
+
+	/**
+	 * Elementor Pro front-end runtime — only when Pro is active.
+	 *
+	 * @var string[]
+	 */
+	const ELEMENTOR_PRO_BASE_SCRIPTS = array(
 		'plugins/elementor-pro/assets/js/webpack-pro.runtime.min.js',
 		'plugins/elementor-pro/assets/js/frontend.min.js',
 		'plugins/elementor-pro/assets/js/elements-handlers.min.js',
@@ -469,8 +485,18 @@ class Widget_Assets {
 	 * @return array{styles:string[],scripts:string[]}
 	 */
 	public function required_paths( array $widgets ) {
-		$styles  = Elementor_Bridge::available() ? self::BASE_STYLES : array();
-		$scripts = Elementor_Bridge::available() ? self::BASE_SCRIPTS : array();
+		$styles  = array();
+		$scripts = array();
+
+		if ( Elementor_Bridge::available() ) {
+			$styles  = self::BASE_STYLES;
+			$scripts = self::BASE_SCRIPTS;
+			if ( is_plugin_active_safe( 'elementor-pro/elementor-pro.php' ) ) {
+				$scripts = array_merge( $scripts, self::ELEMENTOR_PRO_BASE_SCRIPTS );
+			}
+		}
+
+		$needs_elementskit = is_plugin_active_safe( 'elementskit-lite/elementskit-lite.php' );
 
 		foreach ( $widgets as $widget ) {
 			$widget = sanitize_key( (string) $widget );
@@ -481,11 +507,13 @@ class Widget_Assets {
 				$scripts = array_merge( $scripts, self::WIDGET_SCRIPTS[ $widget ] );
 			}
 			// ElementsKit widgets register as ekit-* inside Elementor.
-			if ( 0 === strpos( $widget, 'elementskit-' ) || 0 === strpos( $widget, 'ekit-' ) ) {
-				$styles[] = 'plugins/elementskit-lite/widgets/init/assets/css/widget-styles.css';
-				$styles[] = 'plugins/elementskit-lite/widgets/init/assets/css/responsive.css';
-				$styles[] = 'plugins/elementskit-lite/modules/elementskit-icon-pack/assets/css/ekiticons.css';
+			if ( 0 === strpos( $widget, 'elementskit-' ) || 0 === strpos( $widget, 'ekit-' ) || 'elementskit-widget' === $widget ) {
+				$needs_elementskit = true;
 			}
+		}
+
+		if ( $needs_elementskit ) {
+			$styles = array_merge( $styles, self::ELEMENTSKIT_BASE_STYLES );
 		}
 
 		$styles  = array_values( array_unique( $styles ) );

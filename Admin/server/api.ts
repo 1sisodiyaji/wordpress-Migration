@@ -35,6 +35,7 @@ import { comparisonSummary, fetchPageInsight } from "./page-insights";
 export interface ProjectAudit {
   unresolvedShortcodes: PluginExportAudit["unresolvedShortcodes"];
   warnings: string[];
+  missingAssets: string[];
   summary: {
     pages: number;
     templates: number;
@@ -42,21 +43,39 @@ export interface ProjectAudit {
     media: number;
     hasLayout: boolean;
   } | null;
+  assetFidelity?: {
+    generatedAt: string;
+    phase: string;
+    totalMissing: number;
+    stylesMissing: number;
+    scriptsMissing: number;
+    canvasStylesMissing: number;
+    stylesDeclared: number;
+    scriptsDeclared: number;
+    bytesPresent: number;
+    guardrailPassed: boolean;
+    failures: string[];
+  } | null;
 }
 
 function readProjectAudit(slug: string): ProjectAudit | null {
   const dataDir = getMigratedDataDir(slug);
   const auditPath = path.join(dataDir, "audit", "report.json");
   const manifestPath = path.join(dataDir, "manifest.json");
-  if (!fs.existsSync(auditPath) && !fs.existsSync(manifestPath)) return null;
+  const fidelityPath = path.join(dataDir, "audit", "asset-fidelity.json");
+  if (!fs.existsSync(auditPath) && !fs.existsSync(manifestPath) && !fs.existsSync(fidelityPath)) {
+    return null;
+  }
 
   let unresolvedShortcodes: PluginExportAudit["unresolvedShortcodes"] = [];
   let warnings: string[] = [];
+  let missingAssets: string[] = [];
   if (fs.existsSync(auditPath)) {
     try {
       const audit = JSON.parse(fs.readFileSync(auditPath, "utf8")) as PluginExportAudit;
       unresolvedShortcodes = audit.unresolvedShortcodes ?? [];
       warnings = audit.warnings ?? [];
+      missingAssets = audit.missingAssets ?? [];
     } catch {
       /* ignore malformed audit */
     }
@@ -79,7 +98,41 @@ function readProjectAudit(slug: string): ProjectAudit | null {
     }
   }
 
-  return { unresolvedShortcodes, warnings, summary };
+  let assetFidelity: ProjectAudit["assetFidelity"] = null;
+  if (fs.existsSync(fidelityPath)) {
+    try {
+      const fidelity = JSON.parse(fs.readFileSync(fidelityPath, "utf8")) as {
+        generatedAt?: string;
+        phase?: string;
+        summary?: {
+          totalMissing?: number;
+          styles?: { missing?: number; declared?: number; bytesPresent?: number };
+          scripts?: { missing?: number; declared?: number; bytesPresent?: number };
+          canvasStyles?: { missing?: number };
+        };
+        guardrail?: { passed?: boolean; failures?: string[] };
+      };
+      assetFidelity = {
+        generatedAt: fidelity.generatedAt ?? "",
+        phase: fidelity.phase ?? "post-convert",
+        totalMissing: fidelity.summary?.totalMissing ?? 0,
+        stylesMissing: fidelity.summary?.styles?.missing ?? 0,
+        scriptsMissing: fidelity.summary?.scripts?.missing ?? 0,
+        canvasStylesMissing: fidelity.summary?.canvasStyles?.missing ?? 0,
+        stylesDeclared: fidelity.summary?.styles?.declared ?? 0,
+        scriptsDeclared: fidelity.summary?.scripts?.declared ?? 0,
+        bytesPresent:
+          (fidelity.summary?.styles?.bytesPresent ?? 0) +
+          (fidelity.summary?.scripts?.bytesPresent ?? 0),
+        guardrailPassed: fidelity.guardrail?.passed !== false,
+        failures: fidelity.guardrail?.failures ?? [],
+      };
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return { unresolvedShortcodes, warnings, missingAssets, summary, assetFidelity };
 }
 
 function slugify(name: string): string {

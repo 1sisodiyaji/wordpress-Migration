@@ -71,12 +71,23 @@ function entryHref(entry: PluginExportAssetRef, assetsRoot: string): string | nu
 
 /** Gutenberg frontend CSS from wp-includes that must ship with the canvas. */
 const ALLOWED_WP_INCLUDES_STYLE =
-  /wp-includes\/css\/dist\/block-library\/(style|theme)(\.min)?\.css|wp-includes\/css\/classic-themes(\.min)?\.css/i;
+  /wp-includes\/css\/dist\/block-library\/(style|theme|common)(\.min)?\.css|wp-includes\/css\/dist\/theme\/(design-tokens|theme-json)(\.min)?\.css|wp-includes\/css\/classic-themes(\.min)?\.css/i;
 
 const ALLOWED_WP_INCLUDES_STYLE_HANDLES = new Set([
   "wp-block-library",
   "wp-block-library-theme",
   "classic-theme-styles",
+  "wp-theme",
+  "wp-theme-json",
+]);
+
+const ALLOWED_WP_INCLUDES_SCRIPT =
+  /wp-includes\/js\/jquery\//i;
+
+const ALLOWED_WP_INCLUDES_SCRIPT_HANDLES = new Set([
+  "jquery",
+  "jquery-core",
+  "jquery-migrate",
 ]);
 
 function isBlockedStyle(entry: PluginExportAssetRef): boolean {
@@ -88,7 +99,7 @@ function isBlockedStyle(entry: PluginExportAssetRef): boolean {
   const src = entry.src ?? "";
   if (ALLOWED_WP_INCLUDES_STYLE_HANDLES.has(handle)) return false;
   if (ALLOWED_WP_INCLUDES_STYLE.test(src)) return false;
-  if (entry.bundlePath && /\/wp-includes\/css\/dist\/block-library\/(style|theme)/i.test(entry.bundlePath)) {
+  if (entry.bundlePath && ALLOWED_WP_INCLUDES_STYLE.test(entry.bundlePath)) {
     return false;
   }
   return /wp-includes\//i.test(src) || /\/wp-includes\//i.test(entry.bundlePath ?? "");
@@ -98,8 +109,14 @@ function isBlockedScript(entry: PluginExportAssetRef): boolean {
   const handle = entry.handle ?? "";
   if (BLOCKED_SCRIPT_HANDLES.has(handle)) return true;
   if (handle.includes("admin")) return true;
+  // React vendor bundles are editor-only — not design assets for the migrated site.
+  if (/^(react|react-dom|react-jsx-runtime|wp-element)$/i.test(handle)) return true;
   const src = entry.src ?? "";
-  return /wp-includes\//i.test(src);
+  if (ALLOWED_WP_INCLUDES_SCRIPT_HANDLES.has(handle)) return false;
+  if (ALLOWED_WP_INCLUDES_SCRIPT.test(src) || ALLOWED_WP_INCLUDES_SCRIPT.test(entry.bundlePath ?? "")) {
+    return false;
+  }
+  return /wp-includes\//i.test(src) || /\/wp-includes\//i.test(entry.bundlePath ?? "");
 }
 
 function patchInlineScript(js: string): string {

@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   ensureCriticalCanvasCss,
+  ensureWpIncludesDesignAssets,
   extractInlineElementorStyles,
   mirrorRemoteMediaUrls,
   patchElementorCssUrls,
@@ -12,6 +13,8 @@ import {
   writeElementorKitVarsStyle,
   writeElementorPreviewStyle,
   writeSiteFontsStyle,
+  writeThemeFontsStyle,
+  THEME_DUOTONE_SVG_HREF,
 } from "./grape-prep";
 import { pageKeyToComponent } from "./names";
 import { cleanGeneratedProject, rmPathSafe } from "./fs-clean";
@@ -94,8 +97,9 @@ export async function generateReactGrapeProjectV2(opts: {
     fs.mkdirSync(path.join(projectDir, "public", "assets"), { recursive: true });
 
     const projectAssetsDir = path.join(projectDir, "public", "assets");
-    // Import lands at public/wp-content + public/inline; Vite serves from public/assets/*.
+    // Import lands at public/{wp-content,wp-includes,inline,theme}; Vite serves from public/assets/*.
     // Never copy public/ → public/assets/ wholesale (that nests forever and blows the stack).
+    ensureThemePublicFromData(slug, site.assetsSourceDir);
     const copied = copyImportedPublicIntoViteAssets(site.assetsSourceDir, projectAssetsDir);
     pipelineStep("convert", `Copied imported assets → ${projectAssetsDir}`, slug);
     for (const name of copied) pipelineInfo(`asset: ${name}`, slug);
@@ -118,8 +122,23 @@ export async function generateReactGrapeProjectV2(opts: {
       patchElementorCssUrls(projectAssetsDir);
     }
 
-    writeGrapeBlocksStyle(projectAssetsDir);
-    writeSiteFontsStyle(projectAssetsDir, { wordpressUrl: site.wordpressUrl });
+    // Never ship a converted site without WP design tokens / jQuery when the
+    // export declared them — missing CSS = lost design.
+    const recovered = await ensureWpIncludesDesignAssets(projectAssetsDir, {
+      fallbackRoots: [site.assetsSourceDir, projectAssetsDir, getMigratedDataDir(slug)],
+      wordpressUrl: site.wordpressUrl,
+    });
+    for (const rel of recovered) pipelineInfo(`recovered wp-includes: ${rel}`, slug);
+
+    writeGrapeBlocksStyle(projectAssetsDir, { fseSafe: !isElementor });
+    if (isElementor) {
+      writeSiteFontsStyle(projectAssetsDir, { wordpressUrl: site.wordpressUrl });
+    } else {
+      writeThemeFontsStyle(projectAssetsDir, {
+        siteSlug: slug,
+        dataDir: getMigratedDataDir(slug),
+      });
+    }
 
     pipelineStep("convert", "Converting Elementor trees → GrapeJS blocks + writing site data", slug);
     writeData(projectDir, site, []);
@@ -131,8 +150,9 @@ export async function generateReactGrapeProjectV2(opts: {
     patchSiteKitClasses(projectDir, elementorKitClasses);
 
     pipelineStep("convert", "Writing React app shell (layout, pages, App.tsx)", slug);
-    writeLayoutComponents(projectDir);
+    writeLayoutComponents(projectDir, { wrapClassicShell: isElementor });
     writeSiteAssets(projectDir);
+    writeSiteSeo(projectDir, slug);
     writeGrapeRegion(projectDir);
     writePageModules(projectDir, site);
     writeRootFiles(projectDir, site, port);
@@ -140,6 +160,36 @@ export async function generateReactGrapeProjectV2(opts: {
     pipelineOk(`Converted → ${projectDir} (dev port ${port})`, slug);
     pipelineDetail("site.json", path.join(projectDir, "src", "data", "site.json"), slug);
     pipelineDetail("App.tsx", path.join(projectDir, "src", "App.tsx"), slug);
+
+    // Guardrail: count missing CSS/JS so plugin export gaps are tracked every convert.
+    try {
+      const { runAssetFidelityAudit, formatAssetFidelitySummary } = await import(
+        "./asset-fidelity-audit"
+      );
+      const fidelity = runAssetFidelityAudit({
+        slug,
+        phase: "post-convert",
+        // Strict: missing design CSS fails convert unless ASSET_AUDIT_FAIL=0.
+        failOnGuardrail: process.env.ASSET_AUDIT_FAIL !== "0",
+      });
+      pipelineStep("convert", "Asset fidelity audit", slug);
+      for (const line of formatAssetFidelitySummary(fidelity).split("\n")) {
+        pipelineInfo(line, slug);
+      }
+      pipelineDetail(
+        "asset-fidelity",
+        path.join(getMigratedDataDir(slug), "audit", "asset-fidelity.json"),
+        slug,
+      );
+    } catch (auditErr) {
+      const msg = auditErr instanceof Error ? auditErr.message : String(auditErr);
+      if (/guardrail failed/i.test(msg) && process.env.ASSET_AUDIT_FAIL !== "0") {
+        pipelineFail(msg, slug);
+        throw auditErr;
+      }
+      pipelineInfo(`asset fidelity audit skipped: ${msg}`, slug);
+    }
+
     return projectDir;
   } catch (err) {
     pipelineFail(err instanceof Error ? err.message : String(err), slug);
@@ -157,7 +207,7 @@ function copyImportedPublicIntoViteAssets(publicDir: string, viteAssetsDir: stri
 
   fs.mkdirSync(viteAssetsDir, { recursive: true });
 
-  const prefer = ["wp-content", "wp-includes", "inline"];
+  const prefer = ["wp-content", "wp-includes", "inline", "theme"];
   const names = new Set([
     ...prefer.filter((n) => fs.existsSync(path.join(publicDir, n))),
     ...fs.readdirSync(publicDir).filter((n) => {
@@ -184,6 +234,18 @@ function copyImportedPublicIntoViteAssets(publicDir: string, viteAssetsDir: stri
   }
 
   return copied;
+}
+
+/**
+ * If generate cleaned before theme was preserved, restore public/theme from
+ * the durable data/theme tree written by the importer.
+ */
+function ensureThemePublicFromData(slug: string, publicDir: string): void {
+  const dest = path.join(publicDir, "theme");
+  if (fs.existsSync(dest)) return;
+  const src = path.join(getMigratedDataDir(slug), "theme");
+  if (!fs.existsSync(src)) return;
+  copyTreeSafe(src, dest);
 }
 
 function isSameOrInside(child: string, parent: string): boolean {
@@ -213,10 +275,60 @@ function copyTreeSafe(src: string, dest: string, depth = 0): void {
   }
 }
 
-function writeGrapeBlocksStyle(projectAssetsDir: string): void {
+function writeGrapeBlocksStyle(
+  projectAssetsDir: string,
+  opts?: { fseSafe?: boolean },
+): void {
   const file = path.join(projectAssetsDir, "inline", "styles", "grape-blocks.css");
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  let css = `/* Base styles for Elementor → GrapeJS block conversion (Stage 3) */
+
+  /*
+   * FSE/Gutenberg: converter CSS must NEVER override theme/core styles.
+   * Only ship a tiny UA reset + converter-owned marquee helpers. Sticky header
+   * wrapper is the one layout fix view-mode needs (theme sticky is clipped by
+   * .site-header). Everything else comes from exported WP CSS.
+   */
+  if (opts?.fseSafe) {
+    const fseCss = `/* FSE/Gutenberg → GrapeJS: do not override theme/core CSS */
+*, *::before, *::after { box-sizing: border-box; }
+body { margin: 0; }
+img { max-width: 100%; height: auto; }
+
+/* Converter-owned marquees only (not WP classes) */
+.grape-marquee { overflow: hidden; width: 100%; max-width: 100%; }
+.grape-marquee-track {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  width: max-content;
+  gap: 28px;
+  animation: grape-marquee-scroll 45s linear infinite;
+}
+.grape-marquee-track.is-reverse { animation-direction: reverse; }
+.grape-marquee-track img { flex: 0 0 auto; max-height: 48px; width: auto; }
+@keyframes grape-marquee-scroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .grape-marquee-track { animation: none; }
+}
+
+/* View-mode wraps sticky template-part; sticky the wrapper so the bar sticks. */
+.site-header,
+.site-header > .wp-block-template-part,
+header.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+}
+`;
+    fs.writeFileSync(file, fseCss, "utf8");
+    return;
+  }
+
+  // Elementor-oriented Manrope/#202124 resets (Elementor sites only).
+  const baseReset = `/* Base styles for Elementor → GrapeJS block conversion (Stage 3) */
 *, *::before, *::after { box-sizing: border-box; }
 body { margin: 0; font-family: "Manrope", "Google Sans", system-ui, sans-serif; color: #202124; line-height: 1.5; }
 section, div { min-width: 0; }
@@ -225,7 +337,8 @@ a { color: inherit; }
 h1, h2, h3, h4, h5, h6 { margin: 0 0 0.5em; line-height: 1.2; }
 p { margin: 0 0 1em; }
 ul { margin: 0; padding: 0; }
-/* FSE/Gutenberg: vertical rhythm comes from spacers + layout rules, not UA/text defaults */
+`;
+  let css = `${baseReset}/* FSE/Gutenberg: vertical rhythm comes from spacers + layout rules, not UA/text defaults */
 :where(.wp-block-heading),
 :where(h1.wp-block-heading), :where(h2.wp-block-heading), :where(h3.wp-block-heading),
 :where(h4.wp-block-heading), :where(h5.wp-block-heading), :where(h6.wp-block-heading),
@@ -266,7 +379,11 @@ ul { margin: 0; padding: 0; }
 @media (prefers-reduced-motion: reduce) {
   .grape-marquee-track { animation: none; }
 }
+`;
 
+  // Keep the rest of the Elementor path below — skip the old shared FSE block.
+  // (Elementor still needs icon sizing + footer helpers.)
+  css += `
 /* Icon sizing — responsive CSS sets --ekit-*-size on [data-el-id]; these consume it */
 [data-widget="elementskit-funfact"] {
   --ekit-funfact-icon-size: 35px;
@@ -294,16 +411,10 @@ ul { margin: 0; padding: 0; }
   line-height: 1;
 }
 
-/* ── Gutenberg / FSE canvas parity (navbar, align, images, footer) ── */
-
 /* Text alignment utilities (often missing from exported global-styles) */
-:root .has-text-align-center,
 .has-text-align-center { text-align: center !important; }
-:root .has-text-align-left,
 .has-text-align-left { text-align: left !important; }
-:root .has-text-align-right,
 .has-text-align-right { text-align: right !important; }
-:root .has-text-align-justify,
 .has-text-align-justify { text-align: justify !important; }
 
 /* Buttons row centering */
@@ -316,89 +427,13 @@ ul { margin: 0; padding: 0; }
 .wp-block-buttons.is-content-justification-right { justify-content: flex-end; }
 .wp-block-buttons.is-content-justification-left { justify-content: flex-start; }
 
-/*
- * Flex justification utilities — global-styles export often omits these, which
- * collapses FSE headers (title | nav | CTA) into a stacked column.
- */
-.is-layout-flex.is-content-justification-left,
-.is-content-justification-left { justify-content: flex-start; }
-.is-layout-flex.is-content-justification-center,
-.is-content-justification-center { justify-content: center; }
-.is-layout-flex.is-content-justification-right,
-.is-content-justification-right { justify-content: flex-end; }
-.is-layout-flex.is-content-justification-space-between,
-.is-content-justification-space-between { justify-content: space-between; }
-.is-layout-flex.is-content-justification-stretch,
-.is-content-justification-stretch { justify-content: stretch; }
-.is-layout-flex.is-nowrap,
-.is-nowrap { flex-wrap: nowrap !important; }
-.items-justified-left { justify-content: flex-start; }
-.items-justified-center { justify-content: center; }
-.items-justified-right { justify-content: flex-end; }
-.items-justified-space-between { justify-content: space-between; }
-
-/* Image roundness: variation --2/3/4 must win over base is-style-rounded (9999px) */
-:root :where(.wp-block-image.is-style-rounded.is-style-rounded--2 img),
-:root :where(.wp-block-image.is-style-rounded--2 img) {
-  border-radius: var(--wp--preset--spacing--20, 1.5rem) !important;
+.site-header,
+.site-header > .wp-block-template-part,
+header.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
 }
-:root :where(.wp-block-image.is-style-rounded.is-style-rounded--3 img),
-:root :where(.wp-block-image.is-style-rounded--3 img) {
-  border-radius: var(--wp--preset--spacing--30, 2.5rem) !important;
-}
-:root :where(.wp-block-image.is-style-rounded.is-style-rounded--4 img),
-:root :where(.wp-block-image.is-style-rounded--4 img) {
-  border-radius: var(--wp--preset--spacing--40, 4rem) !important;
-}
-.wp-block-image img {
-  display: block;
-  max-width: 100%;
-  height: auto;
-}
-
-/*
- * FSE header helpers — do NOT override core navigation responsive CSS.
- * WP already: <600px hamburger + hidden overlay; ≥600px inline links.
- * Overlay open/close needs a tiny click handler (SiteHeader) because the
- * Interactivity API is not shipped in the migrated app.
- */
-.site-header .wp-block-columns.is-not-stacked-on-mobile,
-header .wp-block-columns.is-not-stacked-on-mobile {
-  display: flex !important;
-  flex-wrap: nowrap !important;
-  align-items: center;
-  width: 100%;
-}
-.site-header .wp-block-group.is-layout-flex,
-header .wp-block-group.is-layout-flex {
-  display: flex !important;
-  align-items: center;
-}
-.site-header .wp-block-group.is-content-justification-space-between,
-header .wp-block-group.is-content-justification-space-between {
-  justify-content: space-between;
-  width: 100%;
-}
-.site-header .wp-block-group.is-content-justification-right,
-header .wp-block-group.is-content-justification-right {
-  justify-content: flex-end;
-  gap: var(--wp--style--block-gap, 1rem);
-}
-.site-header .wp-block-group.is-nowrap,
-header .wp-block-group.is-nowrap {
-  flex-wrap: nowrap !important;
-}
-.site-header .wp-block-site-title a,
-header .wp-block-site-title a {
-  text-decoration: none;
-}
-.wp-block-navigation a,
-.wp-block-navigation .wp-block-navigation-item__content {
-  color: inherit;
-  text-decoration: none;
-}
-
-/* Footer: columns + stacked navs without absolute/overlay bleed */
 .site-footer,
 footer.wp-block-template-part,
 footer.site-footer {
@@ -420,66 +455,10 @@ footer .wp-block-column {
   flex: 1 1 12rem;
   min-width: 0;
 }
-.site-footer .wp-block-navigation,
-footer .wp-block-navigation {
-  position: static !important;
-}
-/* Footer navs are usually vertical lists — show links, hide overlay chrome */
-.site-footer .wp-block-navigation .wp-block-navigation__responsive-container-open,
-.site-footer .wp-block-navigation .wp-block-navigation__responsive-container-close,
-footer .wp-block-navigation .wp-block-navigation__responsive-container-open,
-footer .wp-block-navigation .wp-block-navigation__responsive-container-close {
-  display: none !important;
-}
-.site-footer .wp-block-navigation .wp-block-navigation__responsive-container,
-footer .wp-block-navigation .wp-block-navigation__responsive-container {
-  display: block !important;
-  position: static !important;
-  width: auto !important;
-  height: auto !important;
-  overflow: visible !important;
-  background: transparent !important;
-  padding: 0 !important;
-}
-.site-footer .wp-block-navigation.is-vertical .wp-block-navigation__container,
-footer .wp-block-navigation.is-vertical .wp-block-navigation__container {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.35rem;
-}
-.site-footer .wp-block-group.is-content-justification-space-between,
-footer .wp-block-group.is-content-justification-space-between {
-  display: flex !important;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 1.5rem;
-  width: 100%;
-}
-
-/* Collapse empty footer spacers/groups that Grape keeps as tall drop targets */
-.site-footer .wp-block-group:not(:has(*)),
-footer .wp-block-group:not(:has(*)),
-.site-footer .wp-block-column:not(:has(*)),
-footer .wp-block-column:not(:has(*)) {
-  display: none !important;
-  min-height: 0 !important;
-  padding: 0 !important;
-  margin: 0 !important;
-}
-
-/* Don’t let base list reset crush nav/footer menus */
-.wp-block-navigation ul,
-.wp-block-page-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
 `;
 
   // Append layout-gap overrides from core-block-supports so they always beat
-  // global-styles' default `:root :where(.is-layout-*) > * { margin-block: 1.2rem }`
-  // even if stylesheet order is wrong (HMR / cached link tags).
+  // global-styles' default margin-block when grape-blocks loads last (Elementor).
   const coreSupports = path.join(projectAssetsDir, "inline", "styles", "core-block-supports.css");
   if (fs.existsSync(coreSupports)) {
     const core = fs.readFileSync(coreSupports, "utf8");
@@ -487,8 +466,7 @@ footer .wp-block-column:not(:has(*)) {
       .map((m) => ({ sel: m[1].trim(), body: m[2].trim() }))
       .filter((r) => /margin-block/i.test(r.body));
     if (rules.length) {
-      css += `\n/* FSE layout-gap: core-block-supports must beat global-styles */\n`;
-      css += `/* :root prefix beats :root :where(.is-layout-*) > * { margin-block: 1.2rem } */\n`;
+      css += `\n/* layout-gap: core-block-supports must beat global-styles */\n`;
       for (const r of rules) {
         css += `:root ${r.sel} { ${r.body} }\n`;
       }
@@ -497,6 +475,7 @@ footer .wp-block-column:not(:has(*)) {
 
   fs.writeFileSync(file, css, "utf8");
 }
+
 
 function resolveTemplateDocument(dataDir: string, templateId: string): ElementorNode[] | null {
   const templatesDir = path.join(dataDir, "templates");
@@ -713,13 +692,32 @@ function loadTemplateTreeByType(
   return null;
 }
 
-/** Blocks mode still needs Elementor/theme CSS so layout, buttons, and images match the site.
- *  Keep core-block-supports after global-styles (WP order) and grape-blocks.css last
- *  so FSE parity fixes (align/nav/radius/footer) win the cascade. */
-function blockModeCanvasStyles(fullStyles: string[]): string[] {
+/**
+ * Blocks mode stylesheet order.
+ *
+ * Elementor: grape-blocks last (Stage-3 parity helpers must win).
+ * FSE/Gutenberg: grape-blocks early (soft reset only). WP global-styles +
+ * block-library + core-block-supports must beat converter CSS — otherwise
+ * Manrope/#202124 resets and !important nav helpers crush theme chrome.
+ */
+function blockModeCanvasStyles(fullStyles: string[], opts?: { fseSafe?: boolean }): string[] {
   const CORE_BLOCK_SUPPORTS = "/assets/inline/styles/core-block-supports.css";
   const rest = fullStyles.filter((s) => s !== GRAPE_BLOCKS_CSS && s !== CORE_BLOCK_SUPPORTS);
   const hasCore = fullStyles.includes(CORE_BLOCK_SUPPORTS);
+  if (opts?.fseSafe) {
+    // Fonts stay first (withBuilderCanvasStyles already prefixes them).
+    // Insert grape-blocks right after font/duotone helpers, before WP core.
+    const fontish = (s: string) =>
+      /\/(theme-fonts|theme-duotone|site-fonts|wp-fonts|design-tokens)/i.test(s);
+    const fonts = rest.filter(fontish);
+    const body = rest.filter((s) => !fontish(s));
+    return [
+      ...fonts,
+      GRAPE_BLOCKS_CSS,
+      ...body,
+      ...(hasCore ? [CORE_BLOCK_SUPPORTS] : []),
+    ];
+  }
   return [...rest, ...(hasCore ? [CORE_BLOCK_SUPPORTS] : []), GRAPE_BLOCKS_CSS];
 }
 
@@ -881,6 +879,7 @@ function writeData(projectDir: string, site: PluginSite, elementorKitClasses: st
         ...inlineHrefs,
       ],
       site.pageBuilder,
+      assetsRoot,
     );
 
     return {
@@ -891,7 +890,10 @@ function writeData(projectDir: string, site: PluginSite, elementorKitClasses: st
       contentMode,
       grapeBlocks: grapeBlocks ?? undefined,
       contentHtml: preparedHtml,
-      canvasStyles: contentMode === "blocks" ? blockModeCanvasStyles(canvasStyles) : canvasStyles,
+      canvasStyles:
+        contentMode === "blocks"
+          ? blockModeCanvasStyles(canvasStyles, { fseSafe: !isElementor })
+          : canvasStyles,
       canvasScripts: canvas.scripts,
     };
   });
@@ -920,6 +922,7 @@ function writeData(projectDir: string, site: PluginSite, elementorKitClasses: st
         slug: site.slug,
         name: site.name,
         exportFingerprint: site.exportFingerprint,
+        pageBuilder: site.pageBuilder ?? "unknown",
         elementorKitClasses,
         // Parent document must NOT load Elementor CSS (breaks GrapeJS icons).
         canvasStyles: [],
@@ -957,8 +960,12 @@ function patchSiteKitClasses(projectDir: string, elementorKitClasses: string[]):
   fs.writeFileSync(sitePath, JSON.stringify(site, null, 2), "utf8");
 }
 
-function writeLayoutComponents(projectDir: string): void {
+function writeLayoutComponents(
+  projectDir: string,
+  opts?: { wrapClassicShell?: boolean },
+): void {
   const layoutDir = path.join(projectDir, "src", "components", "layout");
+  const wrapClassicShell = opts?.wrapClassicShell === true;
 
   fs.writeFileSync(
     path.join(layoutDir, "SiteNav.tsx"),
@@ -1148,14 +1155,18 @@ export function getFooterBlocks(): unknown[] | null {
 import { SiteAssets } from "./SiteAssets";
 import { SiteHeader } from "./SiteHeader";
 import { SiteFooter } from "./SiteFooter";
+import { SiteSeo } from "./SiteSeo";
 
 /**
  * Match classic WP theme main content shell (beauty-cosmetic-store / Bootstrap):
  * .container > .row > .content-area > .site-main > article > .entry-content
  * Without this, Spectra sections go full-bleed and lose side padding vs WP.
+ * FSE/block themes already provide their own constrained/alignwide layout — skip the shell.
  */
 function ThemeContentShell({ children }: { children: ReactNode }) {
-  return (
+  ${
+    wrapClassicShell
+      ? `return (
     <div className="container">
       <div className="row">
         <div className="content-area">
@@ -1167,7 +1178,9 @@ function ThemeContentShell({ children }: { children: ReactNode }) {
         </div>
       </div>
     </div>
-  );
+  );`
+      : `return <>{children}</>;`
+  }
 }
 
 /**
@@ -1187,6 +1200,7 @@ export function SiteLayout({
     return (
       <div className="site-layout site-layout--view">
         <SiteAssets pageKey={pageKey} />
+        <SiteSeo pageKey={pageKey} />
         <SiteHeader />
         <main className="site-content site-content--view">
           <ThemeContentShell>{children}</ThemeContentShell>
@@ -1216,15 +1230,55 @@ import siteData from "../../data/site.json";
 
 const CORE_BLOCK_SUPPORTS = "/assets/inline/styles/core-block-supports.css";
 const GRAPE_BLOCKS = "/assets/inline/styles/grape-blocks.css";
+const SITE_FONTS = "/assets/inline/styles/site-fonts.css";
+const DUOTONE_SVG_HREF = "${THEME_DUOTONE_SVG_HREF}";
 
-/** WP order: global-styles early, core-block-supports late (beats default block-gap). */
+/**
+ * Elementor: grape-blocks last.
+ * FSE/Gutenberg: grape-blocks early so WP global-styles + core-block-supports win.
+ */
 function orderCanvasStyles(styles: string[]): string[] {
-  const rest = styles.filter((s) => s !== CORE_BLOCK_SUPPORTS && s !== GRAPE_BLOCKS);
+  const pageBuilder = String((siteData as { pageBuilder?: string }).pageBuilder ?? "");
+  const fseSafe = pageBuilder !== "elementor";
+  const cleaned = styles.filter((s) => (fseSafe ? s !== SITE_FONTS : true));
+  const rest = cleaned.filter((s) => s !== CORE_BLOCK_SUPPORTS && s !== GRAPE_BLOCKS);
+  const hasCore = cleaned.includes(CORE_BLOCK_SUPPORTS);
+  const hasGrape = cleaned.includes(GRAPE_BLOCKS);
+  if (fseSafe) {
+    const fontish = (s: string) => /\\/(theme-fonts|theme-duotone|wp-fonts|design-tokens)/i.test(s);
+    const fonts = rest.filter(fontish);
+    const body = rest.filter((s) => !fontish(s));
+    return [
+      ...fonts,
+      ...(hasGrape ? [GRAPE_BLOCKS] : []),
+      ...body,
+      ...(hasCore ? [CORE_BLOCK_SUPPORTS] : []),
+    ];
+  }
   return [
     ...rest,
-    ...(styles.includes(CORE_BLOCK_SUPPORTS) ? [CORE_BLOCK_SUPPORTS] : []),
-    ...(styles.includes(GRAPE_BLOCKS) ? [GRAPE_BLOCKS] : []),
+    ...(hasCore ? [CORE_BLOCK_SUPPORTS] : []),
+    ...(hasGrape ? [GRAPE_BLOCKS] : []),
   ];
+}
+
+/** Inject WP duotone SVG filter defs (required for .wp-duotone-* site logos). */
+async function ensureDuotoneFilters(doc: Document = document) {
+  if (doc.getElementById("wp-duotone-filters")) return;
+  try {
+    const res = await fetch(DUOTONE_SVG_HREF, { cache: "force-cache" });
+    if (!res.ok) return;
+    const html = (await res.text()).trim();
+    if (!html || !html.includes("wp-duotone")) return;
+    const wrap = doc.createElement("div");
+    wrap.id = "wp-duotone-filters";
+    wrap.setAttribute("aria-hidden", "true");
+    wrap.style.cssText = "position:absolute;width:0;height:0;overflow:hidden";
+    wrap.innerHTML = html;
+    doc.body.prepend(wrap);
+  } catch {
+    /* optional asset */
+  }
 }
 
 /** Load exported WP/theme CSS (+ scripts) for public view pages. */
@@ -1282,6 +1336,8 @@ export function SiteAssets({ pageKey }: { pageKey?: string }) {
       script.setAttribute("data-site-asset", "1");
       document.body.appendChild(script);
     }
+
+    void ensureDuotoneFilters(document);
   }, [styles, scripts]);
 
   // Theme body classes — Astra scopes header breakpoints; classic themes need wp-theme-* too.
@@ -1360,6 +1416,155 @@ export function PageView({ pageKey }: { pageKey: string }) {
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );
+}
+`,
+    "utf8",
+  );
+}
+
+/**
+ * Aggregate exported SEO JSON into src/data/seo.json and a SiteSeo component
+ * that applies titles/meta/OG/JSON-LD from the WordPress export only.
+ */
+function writeSiteSeo(projectDir: string, slug: string): void {
+  const dataDir = getMigratedDataDir(slug);
+  const pages: Record<string, unknown> = {};
+  const pagesRoot = path.join(dataDir, "pages");
+  if (fs.existsSync(pagesRoot)) {
+    for (const entry of fs.readdirSync(pagesRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const seoPath = path.join(pagesRoot, entry.name, "seo.json");
+      if (!fs.existsSync(seoPath)) continue;
+      try {
+        pages[entry.name] = JSON.parse(fs.readFileSync(seoPath, "utf8"));
+      } catch {
+        /* skip corrupt */
+      }
+    }
+  }
+
+  let siteSeo: Record<string, unknown> = {};
+  const sitePath = path.join(dataDir, "seo", "site.json");
+  if (fs.existsSync(sitePath)) {
+    try {
+      siteSeo = JSON.parse(fs.readFileSync(sitePath, "utf8")) as Record<string, unknown>;
+    } catch {
+      siteSeo = {};
+    }
+  }
+
+  const redirectsPath = path.join(dataDir, "seo", "redirects.json");
+  let redirects: unknown[] = [];
+  if (fs.existsSync(redirectsPath)) {
+    try {
+      redirects = JSON.parse(fs.readFileSync(redirectsPath, "utf8")) as unknown[];
+    } catch {
+      redirects = [];
+    }
+  }
+
+  writeJsonPretty(path.join(projectDir, "src", "data", "seo.json"), {
+    site: siteSeo,
+    pages,
+    redirects,
+  });
+
+  fs.writeFileSync(
+    path.join(projectDir, "src", "components", "layout", "SiteSeo.tsx"),
+    `import { useEffect } from "react";
+import seoData from "../../data/seo.json";
+
+type PageSeo = {
+  title?: string;
+  description?: string;
+  canonical?: string;
+  robots?: string[];
+  og?: Record<string, string>;
+  twitter?: Record<string, string>;
+  jsonLd?: unknown[];
+};
+
+type SeoBundle = {
+  site?: { siteName?: string; tagline?: string; defaults?: { title?: string; description?: string } };
+  pages?: Record<string, PageSeo>;
+};
+
+const bundle = seoData as SeoBundle;
+
+function upsertMeta(attr: "name" | "property", key: string, content: string) {
+  if (!content) return;
+  const sel = \`meta[\${attr}="\${key}"][data-site-seo="1"]\`;
+  let el = document.head.querySelector(sel) as HTMLMetaElement | null;
+  if (!el) {
+    el = document.createElement("meta");
+    el.setAttribute(attr, key);
+    el.setAttribute("data-site-seo", "1");
+    document.head.appendChild(el);
+  }
+  el.content = content;
+}
+
+function upsertLink(rel: string, href: string) {
+  if (!href) return;
+  const sel = \`link[rel="\${rel}"][data-site-seo="1"]\`;
+  let el = document.head.querySelector(sel) as HTMLLinkElement | null;
+  if (!el) {
+    el = document.createElement("link");
+    el.rel = rel;
+    el.setAttribute("data-site-seo", "1");
+    document.head.appendChild(el);
+  }
+  el.href = href;
+}
+
+/** Apply exported WP SEO (Yoast / Rank Math / core) to document head — no invented values. */
+export function SiteSeo({ pageKey }: { pageKey?: string }) {
+  useEffect(() => {
+    const key = pageKey ?? Object.keys(bundle.pages ?? {})[0];
+    const page = (key && bundle.pages?.[key]) || null;
+    const site = bundle.site;
+    if (!page && !site) return;
+
+    const title =
+      page?.title?.trim() ||
+      site?.defaults?.title?.trim() ||
+      site?.siteName?.trim() ||
+      "";
+    if (title) document.title = title;
+
+    const description =
+      page?.description?.trim() ||
+      site?.defaults?.description?.trim() ||
+      site?.tagline?.trim() ||
+      "";
+    upsertMeta("name", "description", description);
+
+    if (page?.canonical) upsertLink("canonical", page.canonical);
+    if (page?.robots?.length) upsertMeta("name", "robots", page.robots.join(", "));
+
+    const og = page?.og ?? {};
+    for (const [k, v] of Object.entries(og)) {
+      if (v) upsertMeta("property", \`og:\${k}\`, v);
+    }
+    if (!og.title && title) upsertMeta("property", "og:title", title);
+    if (!og.description && description) upsertMeta("property", "og:description", description);
+
+    const tw = page?.twitter ?? {};
+    for (const [k, v] of Object.entries(tw)) {
+      if (v) upsertMeta("name", \`twitter:\${k}\`, v);
+    }
+
+    document.querySelectorAll('script[data-site-seo-jsonld="1"]').forEach((n) => n.remove());
+    for (const block of page?.jsonLd ?? []) {
+      const script = document.createElement("script");
+      script.type = "application/ld+json";
+      script.setAttribute("data-site-seo-jsonld", "1");
+      script.textContent = JSON.stringify(block);
+      document.head.appendChild(script);
+    }
+  }, [pageKey]);
+
+  return null;
 }
 `,
     "utf8",
@@ -1627,6 +1832,14 @@ html, body, #root { min-height: 100%; }
 .site-layout { display: flex; flex-direction: column; min-width: 0; }
 .site-layout--edit { flex: 1; min-height: 0; }
 .site-layout--view { min-height: 100vh; }
+
+/* Sticky header wrapper (matches WP .wp-block-template-part sticky) */
+.site-header,
+header.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+}
 
 .site-content { display: flex; flex-direction: column; }
 .site-layout--edit .site-content { flex: 1; min-height: 0; }

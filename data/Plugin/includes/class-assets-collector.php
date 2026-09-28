@@ -447,7 +447,14 @@ class Assets_Collector {
 				}
 				// Prefer theme / otter / block / customizer dumps; skip tiny noise.
 				$keep = false;
-				if ( $id && preg_match( '/atomic-wind|otter|neve|global-styles|wp-block|customizer|wp-custom-css|core-block|tmpcoder/i', $id ) ) {
+				if ( $id && preg_match( '/atomic-wind|otter|neve|global-styles|wp-block|customizer|wp-custom-css|core-block|tmpcoder|wp-fonts-local/i', $id ) ) {
+					$keep = true;
+				}
+				// Theme @font-face dump (id=wp-fonts-local) — required for FSE typography.
+				if ( ! $keep && $id && preg_match( '/fonts-local|wp-fonts/i', $id ) ) {
+					$keep = true;
+				}
+				if ( ! $keep && preg_match( '/@font-face/i', $css ) && strlen( $css ) > 40 ) {
 					$keep = true;
 				}
 				if ( ! $keep && preg_match( '/--nv-|wp-block-atomic-wind|@tailwind|@layer\s+utilities/i', $css ) ) {
@@ -497,9 +504,23 @@ class Assets_Collector {
 			$handle = isset( $entry['handle'] ) ? (string) $entry['handle'] : '';
 			$key    = $handle ? $handle : ( 'src:' . ( $entry['src'] ?? md5( (string) ( $entry['inlineAfter'] ?? '' ) ) ) );
 			if ( isset( $seen[ $key ] ) ) {
-				// Prefer entry that has inline CSS if the earlier one does not.
-				$idx = $seen[ $key ];
-				if ( empty( $out[ $idx ]['inlineAfter'] ) && ! empty( $entry['inlineAfter'] ) ) {
+				// Prefer richer inline CSS (front HTML often has duotone vars that
+				// wp_styles global-styles dump omits).
+				$idx  = $seen[ $key ];
+				$old  = (string) ( $out[ $idx ]['inlineAfter'] ?? '' );
+				$new  = (string) ( $entry['inlineAfter'] ?? '' );
+				$prefer_new = false;
+				if ( '' === $old && '' !== $new ) {
+					$prefer_new = true;
+				} elseif ( strlen( $new ) > strlen( $old ) + 200 ) {
+					$prefer_new = true;
+				} elseif (
+					false === strpos( $old, '--wp--preset--duotone' )
+					&& false !== strpos( $new, '--wp--preset--duotone' )
+				) {
+					$prefer_new = true;
+				}
+				if ( $prefer_new ) {
 					$out[ $idx ] = $entry;
 				}
 				continue;

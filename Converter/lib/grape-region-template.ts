@@ -3,6 +3,8 @@
  * with responsive device toolbar, layers, styles, and traits panels.
  */
 
+import { THEME_DUOTONE_SVG_HREF } from "./grape-prep";
+
 export function buildGrapeRegionTsx(): string {
   return `import { useCallback, useEffect, useRef, useState } from "react";
 import grapesjs from "grapesjs";
@@ -823,6 +825,25 @@ export function GrapeRegion({ pageKey, initialHtml = "" }: Props) {
       revealElementorWidgets(editor);
       forceEagerImages(editor);
       applyElementorKitClasses(editor);
+      // WP duotone SVG filters (site logo white/black) — canvas iframe needs its own defs.
+      void (async () => {
+        const doc = canvasDocument(editor);
+        if (!doc || doc.getElementById("wp-duotone-filters")) return;
+        try {
+          const res = await fetch("${THEME_DUOTONE_SVG_HREF}", { cache: "force-cache" });
+          if (!res.ok) return;
+          const html = (await res.text()).trim();
+          if (!html.includes("wp-duotone")) return;
+          const wrap = doc.createElement("div");
+          wrap.id = "wp-duotone-filters";
+          wrap.setAttribute("aria-hidden", "true");
+          wrap.style.cssText = "position:absolute;width:0;height:0;overflow:hidden";
+          wrap.innerHTML = html;
+          doc.body.prepend(wrap);
+        } catch {
+          /* optional */
+        }
+      })();
       scrollCanvasToHash(editor, window.location.hash);
       applyDeviceFrame(editor);
       stripDefaultPanels(editor);

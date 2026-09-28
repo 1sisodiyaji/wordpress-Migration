@@ -179,9 +179,31 @@ function landBundle(
 
   // 3. Copy the structured template + asset + media + audit files verbatim.
   copyBundleSection(bundle, "templates", dataDir);
+  copyBundleSection(bundle, "theme", dataDir);
+  copyBundleSection(bundle, "seo", dataDir);
   writeJson(path.join(dataDir, "assets", "manifest.json"), assets);
   writeJson(path.join(dataDir, "media", "map.json"), media);
-  writeJson(path.join(dataDir, "audit", "report.json"), { ...audit, warnings });
+  writeJson(path.join(dataDir, "audit", "report.json"), {
+    ...audit,
+    warnings,
+    missingAssets: audit.missingAssets ?? [],
+  });
+
+  // Keep coverage inventory so Admin / operators can inspect missingAssets paths.
+  const coverageRaw = bundle.readText("audit/coverage.json");
+  if (coverageRaw.trim()) {
+    writeText(path.join(dataDir, "audit", "coverage.json"), coverageRaw);
+  }
+
+  // Theme source tree → public so theme.json / template assets stay available.
+  const bundleTheme = path.join(bundle.root, "theme");
+  if (fs.existsSync(bundleTheme)) {
+    const dest = path.join(publicDir, "theme");
+    if (fs.existsSync(dest)) fs.rmSync(dest, { recursive: true, force: true });
+    copyDir(bundleTheme, dest);
+    assetsCopied = true;
+    pipelineStep("sync", `Synced theme → ${dest}`, slug);
+  }
 
   // 4. Per-page: copy structured files + compose a v1-compatible full page.
   const headerHtml = resolvedLayout.header?.html ?? "";
@@ -223,6 +245,8 @@ function landBundle(
       `${dir}/assets.json`,
       `${dir}/shortcodes.json`,
       `${dir}/inline.css`,
+      `${dir}/seo.json`,
+      `pages/${key}/seo.json`,
     ].filter(Boolean) as string[];
     const writtenExtras = new Set<string>();
     for (const rel of pageExtras) {
@@ -330,6 +354,16 @@ function landBundle(
     routes: wpRoutes.length,
     pageBuilder: sitePageBuilder,
   });
+
+  // Baseline missing CSS/JS snapshot right after import (before convert).
+  try {
+    // Dynamic import keeps landBundle sync; fire-and-forget is fine for telemetry.
+    void import("../../lib/asset-fidelity-audit").then(({ runAssetFidelityAudit }) => {
+      runAssetFidelityAudit({ slug, phase: "post-import", failOnGuardrail: false });
+    });
+  } catch {
+    /* audit is best-effort during import */
+  }
 
   return {
     siteSlug: slug,

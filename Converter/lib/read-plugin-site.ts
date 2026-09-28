@@ -158,6 +158,19 @@ export function readPluginSite(slug: string): PluginSite {
       /* ignore */
     }
   }
+  // Top-level manifest often says "classic" while routes are Gutenberg/FSE.
+  // Prefer a concrete builder from routes so Converter does not apply Elementor chrome.
+  if (!pageBuilder || pageBuilder === "classic" || pageBuilder === "unknown") {
+    const routeBuilders = new Set(
+      (manifest?.routes ?? [])
+        .map((r: { pageBuilder?: string }) => (r.pageBuilder ?? "").toLowerCase())
+        .filter(Boolean),
+    );
+    if (routeBuilders.has("elementor")) pageBuilder = "elementor";
+    else if (routeBuilders.has("gutenberg") || routeBuilders.has("fse") || routeBuilders.has("blocks")) {
+      pageBuilder = "gutenberg";
+    }
+  }
 
   return {
     slug,
