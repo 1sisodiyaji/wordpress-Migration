@@ -347,7 +347,6 @@ export function pageCanvasAssets(
   } else {
     // Otter generates Tailwind at runtime when `_atomic_wind_css` was never cached.
     for (const extra of [
-      "plugins/otter-blocks/build/atomic-wind/tailwind-generator-frontend.js",
       "plugins/otter-blocks/build/atomic-wind/animations-frontend.js",
     ]) {
       const href = hrefIfAssetExists(projectAssetsRoot, extra);

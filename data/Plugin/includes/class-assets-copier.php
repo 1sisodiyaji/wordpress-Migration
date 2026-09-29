@@ -84,6 +84,8 @@ class Assets_Copier {
 			);
 		}
 
+		$this->localize_font_files();
+
 		return array(
 			'copied'   => $this->copied_files,
 			'warnings' => $this->warnings,
@@ -92,11 +94,91 @@ class Assets_Copier {
 	}
 
 	/**
-	 * Font Awesome + Tailwind generator used by Otter Atomic Wind on uncached pages.
+	 * Copy font files referenced by exported CSS and point url() at the bundle.
+	 * WordPress font-library CSS keeps http://site/wp-content/fonts/... which
+	 * the React app cannot load (CORS). Files land under assets/wp-content/fonts.
+	 */
+	private function localize_font_files() {
+		$root = rtrim( $this->writer->root(), '/\\' );
+		if ( ! is_dir( $root ) ) {
+			return;
+		}
+		$iterator = new \RecursiveIteratorIterator(
+			new \RecursiveDirectoryIterator( $root, \FilesystemIterator::SKIP_DOTS )
+		);
+		foreach ( $iterator as $file ) {
+			if ( ! $file->isFile() || ! preg_match( '/\.css$/i', $file->getFilename() ) ) {
+				continue;
+			}
+			$path = $file->getPathname();
+			$css  = file_get_contents( $path ); // phpcs:ignore WordPress.WP.AlternativeFunctions
+			if ( ! is_string( $css ) || '' === $css ) {
+				continue;
+			}
+			$rewritten = $this->rewrite_css_font_urls( $css );
+			if ( $rewritten !== $css ) {
+				file_put_contents( $path, $rewritten ); // phpcs:ignore WordPress.WP.AlternativeFunctions
+			}
+		}
+	}
+
+	/**
+	 * @param string $css Stylesheet text.
+	 * @return string
+	 */
+	private function rewrite_css_font_urls( $css ) {
+		$pattern = '#url\(\s*([\'"]?)(https?:)?//([^)\'"\s]+)\1\s*\)#i';
+		return preg_replace_callback(
+			$pattern,
+			function ( $m ) {
+				$absolute = ( $m[2] ? $m[2] : 'https:' ) . '//' . $m[3];
+				$local    = $this->store_font_url( $absolute );
+				if ( ! $local ) {
+					return $m[0];
+				}
+				return 'url("' . $local . '")';
+			},
+			$css
+		);
+	}
+
+	/**
+	 * @param string $url Absolute font or font-css URL.
+	 * @return string|null Root path served from public/assets, or null.
+	 */
+	private function store_font_url( $url ) {
+		$clean = preg_replace( '#\?.*$#', '', $url );
+		$path  = (string) wp_parse_url( $clean, PHP_URL_PATH );
+		if ( '' === $path || ! preg_match( '#\.(woff2?|ttf|otf|eot)$#i', $path ) ) {
+			return null;
+		}
+
+		if ( preg_match( '#/wp-content/fonts/(.+)$#i', $path, $match ) ) {
+			$rel    = rawurldecode( $match[1] );
+			$source = WP_CONTENT_DIR . '/fonts/' . $rel;
+			$dest   = 'assets/wp-content/fonts/' . $rel;
+			if ( is_readable( $source ) && $this->writer->copy( $source, $dest ) ) {
+				$this->copied_files++;
+				return '/assets/wp-content/fonts/' . $rel;
+			}
+		}
+
+		$bytes = $this->download_binary( $clean );
+		if ( null === $bytes ) {
+			return null;
+		}
+		$name = sanitize_file_name( basename( $path ) );
+		$dest = 'assets/inline/fonts/remote/' . $name;
+		$this->writer->write( $dest, $bytes );
+		$this->copied_files++;
+		return '/assets/inline/fonts/remote/' . $name;
+	}
+
+	/**
+	 * Font Awesome + animations used by Otter when that plugin is installed.
 	 */
 	private function copy_otter_runtime_assets() {
 		$rels = array(
-			'plugins/otter-blocks/build/atomic-wind/tailwind-generator-frontend.js',
 			'plugins/otter-blocks/build/atomic-wind/animations-frontend.js',
 			'plugins/otter-blocks/build/atomic-wind/style-animations-frontend.css',
 			'plugins/otter-blocks/assets/fontawesome/css/all.min.css',
@@ -164,9 +246,10 @@ class Assets_Copier {
 					$this->warnings[] = sprintf( 'Stylesheet/script file missing on disk: %s', $src );
 				}
 			} elseif ( 'styles' === $kind ) {
-				// Core Gutenberg CSS lives under wp-includes (not wp-content).
+				// Every core stylesheet under wp-includes, including skip-link
+				// and block CSS. Do not filter by an allow-list.
 				$includes_rel = $this->wp_includes_rel_from_url( $src );
-				if ( $includes_rel && $this->is_allowed_wp_includes_style( $handle, $includes_rel ) ) {
+				if ( $includes_rel && preg_match( '#\.css$#i', $includes_rel ) ) {
 					$source = ABSPATH . 'wp-includes/' . $includes_rel;
 					if ( is_readable( $source ) ) {
 						$dest = 'assets/wp-includes/' . $includes_rel;
@@ -179,9 +262,16 @@ class Assets_Copier {
 					} else {
 						$this->warnings[] = sprintf( 'wp-includes stylesheet missing on disk: %s', $src );
 					}
-				} elseif ( $includes_rel && preg_match( '#^blocks/#', $includes_rel ) ) {
-					// Editor chrome / editor.min.css — count only; summary emitted once.
-					$this->skipped_editor_block_styles++;
+				}
+			}
+
+			// Remote stylesheets (Google Fonts and other CDNs) are enqueued
+			// with an https URL and never map to a file under wp-content.
+			if ( 'styles' === $kind && empty( $entry['bundlePath'] ) && preg_match( '#^https?://#i', $src ) ) {
+				$saved = $this->save_remote_stylesheet( $handle, $src );
+				if ( $saved ) {
+					$entry['bundlePath'] = $saved;
+					$this->copied_files++;
 				}
 			} elseif ( 'scripts' === $kind ) {
 				// Frontend jQuery (and migrate) — needed for Elementor / some FSE widgets.
@@ -531,6 +621,111 @@ class Assets_Copier {
 	}
 
 	/**
+	 * Download a remote stylesheet into the bundle.
+	 *
+	 * Themes enqueue Google Fonts (and similar) as https URLs. Those never
+	 * map to a file on disk, so the export previously left bundlePath empty.
+	 *
+	 * @param string $handle Style handle.
+	 * @param string $url    Absolute stylesheet URL.
+	 * @return string|null Bundle path, or null when the download failed.
+	 */
+	private function save_remote_stylesheet( $handle, $url ) {
+		if ( ! function_exists( 'wp_remote_get' ) ) {
+			return null;
+		}
+
+		$response = wp_remote_get(
+			$url,
+			array(
+				'timeout'    => 20,
+				'user-agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+			)
+		);
+		if ( is_wp_error( $response ) ) {
+			$this->warnings[] = sprintf( 'Remote stylesheet failed (%s): %s', $handle, $response->get_error_message() );
+			return null;
+		}
+		$code = (int) wp_remote_retrieve_response_code( $response );
+		$body = (string) wp_remote_retrieve_body( $response );
+		if ( $code < 200 || $code >= 300 || '' === trim( $body ) ) {
+			$this->warnings[] = sprintf( 'Remote stylesheet HTTP %d: %s', $code, $handle );
+			return null;
+		}
+
+		$body = $this->vendor_remote_font_files( $handle, $body );
+
+		$file = 'assets/inline/styles/' . sanitize_file_name( $handle ) . '.css';
+		$this->writer->write( $file, $body );
+		return $file;
+	}
+
+	/**
+	 * Download font files referenced by a remote stylesheet and rewrite url()
+	 * to paths under public/assets/inline/fonts (Vite serves public/assets).
+	 *
+	 * @param string $handle Style handle.
+	 * @param string $css    Stylesheet text.
+	 * @return string
+	 */
+	private function vendor_remote_font_files( $handle, $css ) {
+		if ( ! preg_match_all( '#https?://[^)\'"\s]+#i', $css, $matches ) ) {
+			return $css;
+		}
+
+		$slug    = sanitize_file_name( $handle );
+		$rewrote = array();
+		foreach ( array_unique( $matches[0] ) as $font_url ) {
+			$path = (string) wp_parse_url( $font_url, PHP_URL_PATH );
+			$base = $path ? basename( $path ) : '';
+			if ( ! preg_match( '#\.(woff2?|ttf|otf|eot)$#i', $base ) ) {
+				continue;
+			}
+			$bytes = $this->download_binary( $font_url );
+			if ( null === $bytes ) {
+				$this->warnings[] = sprintf( 'Font file not downloaded: %s', $font_url );
+				continue;
+			}
+			$name = sanitize_file_name( $base );
+			$dest = 'assets/inline/fonts/' . $slug . '/' . $name;
+			$this->writer->write( $dest, $bytes );
+			$this->copied_files++;
+			$rewrote[ $font_url ] = '/assets/inline/fonts/' . $slug . '/' . $name;
+		}
+
+		foreach ( $rewrote as $remote => $local ) {
+			$css = str_replace( $remote, $local, $css );
+		}
+		return $css;
+	}
+
+	/**
+	 * @param string $url Absolute URL.
+	 * @return string|null Raw bytes, or null on failure.
+	 */
+	private function download_binary( $url ) {
+		if ( ! function_exists( 'wp_remote_get' ) ) {
+			return null;
+		}
+		$response = wp_remote_get(
+			$url,
+			array(
+				'timeout'    => 20,
+				'user-agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+			)
+		);
+		if ( is_wp_error( $response ) ) {
+			return null;
+		}
+		$code = (int) wp_remote_retrieve_response_code( $response );
+		$body = wp_remote_retrieve_body( $response );
+		if ( $code < 200 || $code >= 300 || ! is_string( $body ) || '' === $body ) {
+			return null;
+		}
+		return $body;
+	}
+
+	/**
 	 * Extract wp-includes-relative path from an asset URL.
 	 *
 	 * @param string $url Asset URL.
@@ -574,12 +769,17 @@ class Assets_Copier {
 		if ( preg_match( '#css/classic-themes(\.min)?\.css$#', $rel ) ) {
 			return true;
 		}
+		// Skip link is frontend chrome printed on every block theme page.
+		if ( preg_match( '#^css/wp-block-template-skip-link(\.min)?\.css$#', $rel ) ) {
+			return true;
+		}
 		if ( in_array(
 			$handle,
 			array(
 				'wp-block-library',
 				'wp-block-library-theme',
 				'classic-theme-styles',
+				'wp-block-template-skip-link',
 				'wp-theme',
 				'wp-theme-json',
 			),

@@ -50,12 +50,33 @@ interface Props {
   onOpenEditor: () => Promise<void>;
   onStopEditor: () => Promise<void>;
   onDelete: () => Promise<void> | void;
+  /** Increments when a header step is clicked so the activity log scrolls into view. */
+  logFocus?: number;
+}
+
+export type JourneyState = "pending" | "active" | "done" | "failed";
+
+export function projectJourney(project: Project): Array<{ id: string; label: string; state: JourneyState }> {
+  const meta = project.meta;
+  const scrape = stepState(meta?.scrapeStatus, project.scrapeRunning);
+  const generate = stepState(meta?.generateStatus, meta?.generateStatus === "running");
+  const editor: JourneyState =
+    meta?.editorStatus === "running"
+      ? "done"
+      : meta?.editorStatus === "starting"
+        ? "active"
+        : "pending";
+  return [
+    { id: "import", label: "Import", state: scrape },
+    { id: "convert", label: "Convert", state: generate },
+    { id: "editor", label: "Editor", state: editor },
+  ];
 }
 
 function stepState(
   status: string | undefined,
   running: boolean,
-): "pending" | "active" | "done" | "failed" {
+): JourneyState {
   if (status === "failed") return "failed";
   if (status === "done") return "done";
   if (running || status === "running") return "active";
@@ -64,6 +85,68 @@ function stepState(
 
 function isLocalUrl(url: string): boolean {
   return /localhost|127\.0\.0\.1/i.test(url);
+}
+
+const journeyTone: Record<JourneyState, string> = {
+  pending: "bg-studio-row text-studio-muted",
+  active: "bg-coral text-white",
+  done: "bg-ok-soft text-ok",
+  failed: "bg-danger-soft text-danger",
+};
+
+export function HeaderJourney({
+  project,
+  onOpenLog,
+}: {
+  project: Project;
+  onOpenLog: () => void;
+}) {
+  const steps = projectJourney(project);
+  return (
+    <ol className="m-0 flex list-none flex-wrap items-center gap-2 p-0">
+      {steps.map((step, index) => (
+        <li key={step.id} className="flex items-center gap-2">
+          {index > 0 ? <span className="text-studio-muted" aria-hidden="true">→</span> : null}
+          <button
+            type="button"
+            className={cx(
+              "inline-flex h-8 items-center gap-2 rounded-full border-0 px-3 text-[0.8rem] font-bold",
+              journeyTone[step.state],
+            )}
+            onClick={onOpenLog}
+            title="Show the activity log"
+          >
+            <span className="grid size-5 place-items-center rounded-full bg-studio-surface/80 text-[0.7rem]">
+              {index + 1}
+            </span>
+            {step.label}
+          </button>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function DismissibleError({
+  message,
+  onClose,
+}: {
+  message: string;
+  onClose: () => void;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3 rounded-[1.125rem] bg-danger-soft px-4 py-3 text-sm font-semibold text-danger shadow-studio">
+      <p className="m-0 min-w-0 flex-1">{message}</p>
+      <button
+        type="button"
+        className="grid size-7 shrink-0 place-items-center rounded-full border-0 bg-transparent text-lg leading-none text-danger hover:bg-studio-surface"
+        onClick={onClose}
+        aria-label="Dismiss error"
+      >
+        ×
+      </button>
+    </div>
+  );
 }
 
 export function ProjectFlow({
@@ -76,6 +159,7 @@ export function ProjectFlow({
   onOpenEditor,
   onStopEditor,
   onDelete,
+  logFocus = 0,
 }: Props) {
   const meta = project.meta;
   const [wpUrl, setWpUrl] = useState(meta?.url ?? "");
@@ -87,12 +171,18 @@ export function ProjectFlow({
   const [uploadBusy, setUploadBusy] = useState(false);
   const [editorBusy, setEditorBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [hiddenMetaError, setHiddenMetaError] = useState<string | null>(null);
   const [showDelete, setShowDelete] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
 
   useEffect(() => {
     if (meta?.url) setWpUrl(meta.url);
   }, [meta?.url]);
+
+  useEffect(() => {
+    if (!logFocus) return;
+    document.getElementById("activity-log")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [logFocus]);
 
   const scrapeStep = stepState(meta?.scrapeStatus, project.scrapeRunning);
   const generateStep = stepState(meta?.generateStatus, meta?.generateStatus === "running");
@@ -328,8 +418,8 @@ export function ProjectFlow({
             </div>
 
             {formError && (
-              <div className="mt-3 rounded-[1.125rem] bg-danger-soft px-4 py-3 text-sm font-semibold text-danger">
-                {formError}
+              <div className="mt-3">
+                <DismissibleError message={formError} onClose={() => setFormError(null)} />
               </div>
             )}
           </>,
@@ -589,26 +679,22 @@ export function ProjectFlow({
           );
         })()}
 
-      {(project.phase || project.logs) && (
-        <section className="mb-6 overflow-hidden rounded-3xl bg-studio-surface shadow-studio">
-          <div className="flex items-center justify-between border-b border-studio-border px-4 py-3">
-            <h3 className="m-0 text-sm font-bold">Activity log</h3>
-            {project.phase && (
-              <span className="rounded-full bg-studio-row px-2.5 py-1 text-[0.7rem] font-bold text-studio-muted">
-                {project.phase}
-              </span>
-            )}
-          </div>
-          <pre className="m-0 max-h-[17.5rem] overflow-auto rounded-b-3xl bg-studio-row p-4 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap text-studio-text">
-            {project.logs || "Waiting for activity…"}
-          </pre>
-        </section>
-      )}
-
-      {meta?.error && (
-        <div className="rounded-[1.125rem] bg-danger-soft px-4 py-3 text-sm font-semibold text-danger shadow-studio">
-          {meta.error}
+      <section id="activity-log" className="mb-6 overflow-hidden rounded-3xl bg-studio-surface shadow-studio">
+        <div className="flex items-center justify-between border-b border-studio-border px-4 py-3">
+          <h3 className="m-0 text-sm font-bold">Activity log</h3>
+          {project.phase && (
+            <span className="rounded-full bg-studio-row px-2.5 py-1 text-[0.7rem] font-bold text-studio-muted">
+              {project.phase}
+            </span>
+          )}
         </div>
+        <pre className="m-0 max-h-[17.5rem] overflow-auto rounded-b-3xl bg-studio-row p-4 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap text-studio-text">
+          {project.logs || "Waiting for activity…"}
+        </pre>
+      </section>
+
+      {meta?.error && meta.error !== hiddenMetaError && (
+        <DismissibleError message={meta.error} onClose={() => setHiddenMetaError(meta.error ?? null)} />
       )}
 
       {showDelete && (

@@ -68,7 +68,6 @@ class Assets_Collector {
 				$stylesheets,
 				$this->collect_customizer_css()
 			);
-			$scripts = $this->ensure_otter_generator_script( $scripts, $ids );
 		}
 
 		wp_reset_postdata();
@@ -120,65 +119,6 @@ class Assets_Collector {
 		}
 
 		return $entries;
-	}
-
-	/**
-	 * Ensure Otter's client Tailwind generator is listed when any page lacks a cache.
-	 *
-	 * @param array[] $scripts Existing script entries.
-	 * @param int[]   $post_ids Post IDs.
-	 * @return array[]
-	 */
-	private function ensure_otter_generator_script( array $scripts, array $post_ids ) {
-		$needs = false;
-		foreach ( $post_ids as $post_id ) {
-			$post_id = (int) $post_id;
-			if ( $post_id <= 0 ) {
-				continue;
-			}
-			$post = get_post( $post_id );
-			if ( ! $post ) {
-				continue;
-			}
-			$content = (string) $post->post_content;
-			if ( false === strpos( $content, '<!-- wp:atomic-wind/' ) ) {
-				continue;
-			}
-			$cached = get_post_meta( $post_id, '_atomic_wind_css', true );
-			if ( ! is_string( $cached ) || '' === trim( $cached ) ) {
-				$needs = true;
-				break;
-			}
-		}
-
-		if ( ! $needs ) {
-			return $scripts;
-		}
-
-		$rel = 'plugins/otter-blocks/build/atomic-wind/tailwind-generator-frontend.js';
-		$abs = WP_CONTENT_DIR . '/' . $rel;
-		if ( ! is_readable( $abs ) ) {
-			return $scripts;
-		}
-
-		foreach ( $scripts as $entry ) {
-			$src = isset( $entry['src'] ) ? (string) $entry['src'] : '';
-			if ( false !== strpos( $src, 'tailwind-generator-frontend' ) ) {
-				return $scripts;
-			}
-		}
-
-		$scripts[] = array(
-			'handle'       => 'atomic-wind-tailwind-generator',
-			'src'          => content_url( $rel ),
-			'deps'         => array(),
-			'ver'          => null,
-			'inlineBefore' => null,
-			'inlineAfter'  => null,
-			'source'       => 'otter-generator',
-		);
-
-		return $scripts;
 	}
 
 	/**

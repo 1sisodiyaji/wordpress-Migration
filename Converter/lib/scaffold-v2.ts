@@ -289,12 +289,7 @@ function writeGrapeBlocksStyle(
    * .site-header). Everything else comes from exported WP CSS.
    */
   if (opts?.fseSafe) {
-    const fseCss = `/* FSE/Gutenberg → GrapeJS: do not override theme/core CSS */
-*, *::before, *::after { box-sizing: border-box; }
-body { margin: 0; }
-img { max-width: 100%; height: auto; }
-
-/* Converter-owned marquees only (not WP classes) */
+    const fseCss = `/* Converter-owned marquees only. Theme and core CSS are not overridden. */
 .grape-marquee { overflow: hidden; width: 100%; max-width: 100%; }
 .grape-marquee-track {
   display: flex;
@@ -313,44 +308,16 @@ img { max-width: 100%; height: auto; }
 @media (prefers-reduced-motion: reduce) {
   .grape-marquee-track { animation: none; }
 }
-
-/* View-mode wraps sticky template-part; sticky the wrapper so the bar sticks. */
-.site-header,
-.site-header > .wp-block-template-part,
-header.site-header {
-  position: sticky;
-  top: 0;
-  z-index: 1000;
-}
 `;
     fs.writeFileSync(file, fseCss, "utf8");
     return;
   }
 
-  // Elementor-oriented Manrope/#202124 resets (Elementor sites only).
-  const baseReset = `/* Base styles for Elementor → GrapeJS block conversion (Stage 3) */
-*, *::before, *::after { box-sizing: border-box; }
-body { margin: 0; font-family: "Manrope", "Google Sans", system-ui, sans-serif; color: #202124; line-height: 1.5; }
-section, div { min-width: 0; }
-img { max-width: 100%; height: auto; }
-a { color: inherit; }
-h1, h2, h3, h4, h5, h6 { margin: 0 0 0.5em; line-height: 1.2; }
-p { margin: 0 0 1em; }
-ul { margin: 0; padding: 0; }
+  // Elementor widget helpers only. Do not reset body, headings, images, or box model.
+  const baseReset = `/* Elementor widget helpers. Theme CSS is not overridden. */
 `;
-  let css = `${baseReset}/* FSE/Gutenberg: vertical rhythm comes from spacers + layout rules, not UA/text defaults */
-:where(.wp-block-heading),
-:where(h1.wp-block-heading), :where(h2.wp-block-heading), :where(h3.wp-block-heading),
-:where(h4.wp-block-heading), :where(h5.wp-block-heading), :where(h6.wp-block-heading),
-:where(p.wp-block-paragraph),
-:where(.wp-block-buttons),
-:where(.wp-block-spacer) {
-  margin-block-start: 0;
-  margin-block-end: 0;
-}
-.gradient-text { background: linear-gradient(90deg, #FDCC4B, #282C31); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-
-/* Logo / integration marquees (replaces miga_slide JS) */
+  let css = `${baseReset}
+/* Converter-owned marquees only */
 .grape-marquee {
   overflow: hidden !important;
   width: 100%;
@@ -1799,8 +1766,8 @@ createRoot(document.getElementById("root")!).render(<App />);
 
   fs.writeFileSync(
     path.join(projectDir, "src", "App.css"),
-    `* { box-sizing: border-box; }
-body { margin: 0; font-family: system-ui, sans-serif; }
+    `/* Editor chrome only. Do not set body font, color, or padding — that overrides the migrated theme. */
+.app-shell { font-family: system-ui, sans-serif; }
 html, body, #root { min-height: 100%; }
 
 .app-shell {

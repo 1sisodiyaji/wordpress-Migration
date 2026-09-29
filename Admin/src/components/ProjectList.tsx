@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Project } from "../api";
 import { ConfirmDeleteModal } from "./ui";
 import { cx } from "../lib/cx";
@@ -48,14 +48,67 @@ const iconTone = [
 
 export function ProjectList({ projects, onOpen, onDelete, onCreate }: Props) {
   const [pending, setPending] = useState<{ slug: string; name: string } | null>(null);
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+
+  useEffect(() => {
+    const live = new Set(projects.map((p) => p.slug));
+    setSelected((prev) => {
+      const next = new Set([...prev].filter((slug) => live.has(slug)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [projects]);
+
+  const selectedCount = selected.size;
+  const allSelected = projects.length > 0 && selectedCount === projects.length;
+  const someSelected = selectedCount > 0 && !allSelected;
+
+  function toggleOne(slug: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(slug)) next.delete(slug);
+      else next.add(slug);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    setSelected(allSelected ? new Set() : new Set(projects.map((p) => p.slug)));
+  }
 
   async function confirmDelete() {
     if (!pending) return;
     setDeleteBusy(true);
     try {
       await onDelete(pending.slug);
+      setSelected((prev) => {
+        if (!prev.has(pending.slug)) return prev;
+        const next = new Set(prev);
+        next.delete(pending.slug);
+        return next;
+      });
       setPending(null);
+    } finally {
+      setDeleteBusy(false);
+    }
+  }
+
+  async function confirmBulkDelete() {
+    const slugs = [...selected];
+    if (!slugs.length) return;
+    setDeleteBusy(true);
+    try {
+      for (const slug of slugs) {
+        await onDelete(slug);
+        setSelected((prev) => {
+          if (!prev.has(slug)) return prev;
+          const next = new Set(prev);
+          next.delete(slug);
+          return next;
+        });
+      }
+      setBulkOpen(false);
     } finally {
       setDeleteBusy(false);
     }
@@ -88,11 +141,34 @@ export function ProjectList({ projects, onOpen, onDelete, onCreate }: Props) {
 
   return (
     <section className="overflow-hidden rounded-[1.625rem] bg-studio-surface shadow-studio">
-      <div className="flex items-baseline justify-between gap-4 border-b border-studio-border px-5 pt-4 pb-3.5">
-        <h2 className="m-0 text-[1.05rem] font-extrabold">All projects</h2>
-        <span className="text-[0.8125rem] font-semibold text-studio-muted">
-          {projects.length} {projects.length === 1 ? "project" : "projects"}
-        </span>
+      <div className="flex items-center justify-between gap-4 border-b border-studio-border px-5 pt-4 pb-3.5">
+        <div className="flex min-w-0 items-center gap-3">
+          <input
+            type="checkbox"
+            className="size-4 shrink-0 accent-coral"
+            checked={allSelected}
+            ref={(el) => {
+              if (el) el.indeterminate = someSelected;
+            }}
+            onChange={toggleAll}
+            aria-label="Select all projects"
+          />
+          <h2 className="m-0 text-[1.05rem] font-extrabold">All projects</h2>
+        </div>
+        <div className="flex shrink-0 items-center gap-3">
+          {selectedCount > 0 ? (
+            <button
+              type="button"
+              className="inline-flex h-8 items-center rounded-full px-3.5 text-[0.8125rem] font-bold text-danger hover:bg-danger-soft"
+              onClick={() => setBulkOpen(true)}
+            >
+              Delete {selectedCount}
+            </button>
+          ) : null}
+          <span className="text-[0.8125rem] font-semibold text-studio-muted">
+            {projects.length} {projects.length === 1 ? "project" : "projects"}
+          </span>
+        </div>
       </div>
 
       <div className="overflow-x-auto">
@@ -127,6 +203,14 @@ export function ProjectList({ projects, onOpen, onDelete, onCreate }: Props) {
                 >
                   <td className="px-5 py-4 align-middle">
                     <div className="flex items-center gap-3">
+                      <input
+                        type="checkbox"
+                        className="size-4 shrink-0 accent-coral"
+                        checked={selected.has(p.slug)}
+                        aria-label={`Select ${name}`}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={() => toggleOne(p.slug)}
+                      />
                       <span
                         className={cx("grid size-10 shrink-0 place-items-center rounded-full", iconTone[i % 3])}
                         aria-hidden="true"
@@ -186,10 +270,24 @@ export function ProjectList({ projects, onOpen, onDelete, onCreate }: Props) {
       {pending && (
         <ConfirmDeleteModal
           name={pending.name}
-          detail={`Removes site data (Projects/${pending.slug}) and the generated project (Projects/${pending.slug}).`}
+          detail={`Removes site data and the generated project for ${pending.slug}.`}
           busy={deleteBusy}
           onCancel={() => !deleteBusy && setPending(null)}
           onConfirm={confirmDelete}
+        />
+      )}
+      {bulkOpen && (
+        <ConfirmDeleteModal
+          title={selectedCount === 1 ? "Delete project?" : `Delete ${selectedCount} projects?`}
+          name={
+            selectedCount === 1
+              ? projects.find((p) => selected.has(p.slug))?.meta?.name ?? [...selected][0] ?? "this project"
+              : `${selectedCount} selected projects`
+          }
+          detail="Removes each selected site and its generated project. This cannot be undone."
+          busy={deleteBusy}
+          onCancel={() => !deleteBusy && setBulkOpen(false)}
+          onConfirm={confirmBulkDelete}
         />
       )}
     </section>

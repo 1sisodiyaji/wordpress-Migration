@@ -29,7 +29,6 @@ yarn-error.log*
 automation/.work/
 automation/template-migrate/node_modules/
 
-# Export zips / templates stay local; keep plugin source + zip helper tracked
 data/*
 !data/Plugin/
 !data/Plugin/**

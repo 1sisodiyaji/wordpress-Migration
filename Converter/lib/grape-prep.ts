@@ -329,8 +329,10 @@ export function withBuilderCanvasStyles(
     }
   }
 
-  // FSE/classic: theme fonts + duotone + design-tokens — never force Elementor Manrope.
-  return [THEME_FONTS_STYLE_HREF, THEME_DUOTONE_STYLE_HREF, ...tokens, ...without];
+  const prefix = [THEME_FONTS_STYLE_HREF, THEME_DUOTONE_STYLE_HREF];
+
+  // FSE/classic: theme fonts and duotone are always written under public/assets.
+  return [...prefix, ...tokens, ...without];
 }
 
 /**
@@ -562,10 +564,13 @@ function discoverThemeDuotonePresets(dataDir: string): DuotonePreset[] {
 export function writeThemeDuotoneAssets(projectAssetsDir: string, dataDir: string): {
   cssHref: string;
   svgHref: string;
-} | null {
-  const presets = discoverThemeDuotonePresets(dataDir);
-  if (!presets.length) return null;
+} {
+  const cssOut = path.join(projectAssetsDir, "inline", "styles", "theme-duotone.css");
+  const svgOut = path.join(projectAssetsDir, "inline", "duotone-filters.html");
+  fs.mkdirSync(path.dirname(cssOut), { recursive: true });
+  fs.mkdirSync(path.dirname(svgOut), { recursive: true });
 
+  const presets = discoverThemeDuotonePresets(dataDir);
   const cssChunks: string[] = [
     "/* Theme duotone presets (from theme.json — often missing from exported global-styles) */",
     ":root {",
@@ -582,14 +587,20 @@ export function writeThemeDuotoneAssets(projectAssetsDir: string, dataDir: strin
   }
   cssChunks.push("}");
 
-  if (!svgs.length) return null;
-
-  const cssOut = path.join(projectAssetsDir, "inline", "styles", "theme-duotone.css");
-  const svgOut = path.join(projectAssetsDir, "inline", "duotone-filters.html");
-  fs.mkdirSync(path.dirname(cssOut), { recursive: true });
-  fs.mkdirSync(path.dirname(svgOut), { recursive: true });
-  fs.writeFileSync(cssOut, `${cssChunks.join("\n")}\n`, "utf8");
-  fs.writeFileSync(svgOut, `${svgs.join("\n")}\n`, "utf8");
+  const existing = fs.existsSync(cssOut) ? fs.readFileSync(cssOut, "utf8") : "";
+  const keepExport =
+    !svgs.length && existing.trim().length > 0 && !existing.includes("No duotone presets");
+  if (!keepExport) {
+    const css = svgs.length
+      ? `${cssChunks.join("\n")}\n`
+      : "/* No duotone presets on this theme. */\n:root {}\n";
+    fs.writeFileSync(cssOut, css, "utf8");
+  }
+  if (svgs.length) {
+    fs.writeFileSync(svgOut, `${svgs.join("\n")}\n`, "utf8");
+  } else if (!fs.existsSync(svgOut)) {
+    fs.writeFileSync(svgOut, "<!-- No duotone SVG filters on this theme. -->\n", "utf8");
+  }
 
   return { cssHref: THEME_DUOTONE_STYLE_HREF, svgHref: THEME_DUOTONE_SVG_HREF };
 }

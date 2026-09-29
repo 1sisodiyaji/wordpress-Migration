@@ -37,6 +37,8 @@ services:
         define('FS_METHOD', 'direct');
     volumes:
       - wp_data:/var/www/html
+      # Host plugin source. PHP edits (including Gemini repairs) are live on the next export.
+      - ../../data/Plugin:/var/www/html/wp-content/plugins/wp-grape-export
       - ./uploads.ini:/usr/local/etc/php/conf.d/uploads.ini:ro
 
   phpmyadmin:

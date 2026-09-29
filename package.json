@@ -16,8 +16,8 @@
     "docker:prod": "docker compose -f compose.prod.yml up --build",
     "docker:build": "docker compose -f compose.prod.yml build",
     "docker:push": "docker push golusingh07/pen-wordpress-migrator-admin:latest && docker push golusingh07/pen-wordpress-migrator-converter:latest",
-    "migrate:templates": "pnpm --dir automation/template-migrate start",
-    "migrate:templates:one": "pnpm --dir automation/template-migrate start -- --limit 1",
+    "migrate:templates": "pnpm --dir data/automation/template-migrate start",
+    "migrate:templates:one": "pnpm --dir data/automation/template-migrate start -- --limit 1",
     "zip:plugin": "node data/zip-plugin.mjs"
   },
   "dependencies": {
@@ -26,6 +26,7 @@
     "express": "^5.1.0",
     "multer": "^2.0.2",
     "ogl": "^1.0.11",
+    "playwright": "^1.63.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },

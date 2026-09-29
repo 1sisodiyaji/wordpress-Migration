@@ -361,12 +361,6 @@ class Widget_Assets {
 			);
 		}
 
-		$atomic = get_post_meta( $post_id, '_atomic_wind_css', true );
-		if ( ! is_string( $atomic ) || '' === trim( $atomic ) ) {
-			// Otter generates missing utilities in the browser for uncached pages.
-			$scripts[] = 'plugins/otter-blocks/build/atomic-wind/tailwind-generator-frontend.js';
-		}
-
 		if ( is_string( $html ) && false !== stripos( $html, 'wp-block-otter-form' ) ) {
 			$styles[] = 'plugins/otter-blocks/build/blocks/form/style.css';
 		}

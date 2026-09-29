@@ -14,7 +14,7 @@ import {
 import { useTheme } from "./hooks/useTheme";
 import { DashboardShell } from "./components/DashboardShell";
 import { NewProjectPanel } from "./components/NewProjectPanel";
-import { ProjectFlow, type SyncFromWpCreds } from "./components/ProjectFlow";
+import { HeaderJourney, ProjectFlow, type SyncFromWpCreds } from "./components/ProjectFlow";
 import { ProjectList } from "./components/ProjectList";
 import { CompareInsights } from "./components/CompareInsights";
 
@@ -84,6 +84,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [logFocus, setLogFocus] = useState(0);
 
   const stats = useMemo(() => projectStats(projects), [projects]);
 
@@ -207,7 +208,7 @@ export default function App() {
     route.kind === "compare"
       ? "Original homepage vs migrated GrapeJS · load & CLS insights"
       : route.kind === "project"
-        ? "Upload a ZIP or sync a URL, convert, then open the editor"
+        ? undefined
         : new Date().toLocaleDateString(undefined, {
             weekday: "long",
             month: "long",
@@ -228,6 +229,11 @@ export default function App() {
       onHome={() => navigate({ kind: "dashboard" })}
       onTheme={switchTheme}
       isDark={isDark}
+      progress={
+        route.kind === "project" && active ? (
+          <HeaderJourney project={active} onOpenLog={() => setLogFocus((n) => n + 1)} />
+        ) : undefined
+      }
       actions={
         route.kind === "dashboard" ? (
           <button
@@ -241,8 +247,16 @@ export default function App() {
       }
     >
       {error && (
-        <div className="mb-4 rounded-[1.125rem] bg-danger-soft px-4 py-3 text-sm font-semibold text-danger shadow-studio">
-          {error}
+        <div className="mb-4 flex items-start justify-between gap-3 rounded-[1.125rem] bg-danger-soft px-4 py-3 text-sm font-semibold text-danger shadow-studio">
+          <p className="m-0 min-w-0 flex-1">{error}</p>
+          <button
+            type="button"
+            className="grid size-7 shrink-0 place-items-center rounded-full border-0 bg-transparent text-lg leading-none text-danger hover:bg-studio-surface"
+            onClick={() => setError(null)}
+            aria-label="Dismiss error"
+          >
+            ×
+          </button>
         </div>
       )}
 
@@ -311,6 +325,7 @@ export default function App() {
               onOpenEditor={handleOpenEditor}
               onStopEditor={handleStopEditor}
               onDelete={() => handleDelete(active.slug)}
+              logFocus={logFocus}
             />
           )
         ) : (

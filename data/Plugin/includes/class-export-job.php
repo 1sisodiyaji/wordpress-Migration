@@ -138,19 +138,19 @@ class Export_Job {
 			$this->warnings[] = 'No CSS/JS files were copied. Check that wp-content is readable inside the container.';
 		}
 
-		// Duotone SVG filters + CSS vars (site logos). Prefer front HTML capture;
-		// Converter also regenerates from theme.json when these are missing.
-		$front_html = Front_Html::fetch( home_url( '/' ) );
+		$front_html  = Front_Html::fetch( home_url( '/' ) );
+		$duotone_css = '';
 		if ( $front_html ) {
 			$duotone_svgs = Front_Html::extract_duotone_svgs( $front_html );
 			if ( $duotone_svgs ) {
 				$writer->write( 'assets/inline/duotone-filters.html', $duotone_svgs . "\n" );
 			}
 			$duotone_css = Front_Html::extract_duotone_css_vars( $front_html );
-			if ( $duotone_css ) {
-				$writer->write( 'assets/inline/styles/theme-duotone.css', $duotone_css . "\n" );
-			}
 		}
+		if ( ! $duotone_css ) {
+			$duotone_css = "/* No duotone presets were printed on the front page. */\n:root {}\n";
+		}
+		$writer->write( 'assets/inline/styles/theme-duotone.css', $duotone_css );
 
 		// Media map (+ optional full library copy).
 		$media_mapper = new Media_Mapper( $writer, (bool) $this->args['copy_media'] );

@@ -6,6 +6,8 @@ interface Props {
   title?: string;
   subtitle?: string;
   subtitleClassName?: string;
+  /** Compact journey under the title on a project page. */
+  progress?: ReactNode;
   activeNav?: "projects" | "project";
   /** Full-height content (no page chrome) — used by compare split view. */
   immersive?: boolean;
@@ -40,6 +42,7 @@ export function DashboardShell({
   title,
   subtitle,
   subtitleClassName,
+  progress,
   activeNav = "projects",
   immersive = false,
   onHome,
@@ -136,6 +139,7 @@ export function DashboardShell({
               {title ? (
                 <h1 className="m-0 text-[1.65rem] font-extrabold tracking-[-0.03em] text-studio-text">{title}</h1>
               ) : null}
+              {progress ? <div className="mt-2">{progress}</div> : null}
               {subtitle ? (
                 <p className={cx("mt-0.5 mb-0 text-sm text-studio-muted", subtitleClassName)}>{subtitle}</p>
               ) : null}
