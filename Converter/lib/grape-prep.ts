@@ -288,6 +288,81 @@ export function withElementorPreviewStyle(styles: string[]): string[] {
 /** WP 6.8+ design system tokens (handle: wp-theme). */
 export const WP_DESIGN_TOKENS_HREF = "/assets/wp-includes/css/dist/theme/design-tokens.min.css";
 
+/** Bootstrap / reboot global resets that override theme `body { color; font }` when loaded later. */
+export function isVendorResetStylesheet(href: string): boolean {
+  return /\/bootstrap(\.min)?\.css(\?|$)/i.test(href) || /\/reboot(\.min)?\.css(\?|$)/i.test(href);
+}
+
+/** Theme sheets that must beat vendor body resets (Bootstrap `#212529`). */
+export function isThemeCascadeStylesheet(href: string): boolean {
+  if (/\/wp-content\/themes\//i.test(href)) return true;
+  // Theme-named inline dumps + page/layout overrides — not global-styles
+  // (WP often prints global-styles *before* plugin Bootstrap).
+  return /\/inline\/styles\/(.+-style|.*-google-fonts|page-.+-inline|layout-.+-inline|wp-custom)\.css$/i.test(
+    href,
+  );
+}
+
+/**
+ * If a vendor reset (Bootstrap) landed after theme CSS, move it to just before
+ * the first theme sheet. Preserves relative order of everything else.
+ *
+ * Without this, Creta/Bootstrap `#212529` beats theme black and changes
+ * font/line-height — which shows up as both color and box mismatches in QA.
+ */
+export function ensureThemeBeatsVendorResets(styles: string[]): string[] {
+  const vendorAfterTheme = styles.some(
+    (s, i) => isVendorResetStylesheet(s) && styles.slice(0, i).some(isThemeCascadeStylesheet),
+  );
+  if (!vendorAfterTheme) return styles;
+
+  const vendor: string[] = [];
+  const withoutVendor = styles.filter((s) => {
+    if (isVendorResetStylesheet(s)) {
+      vendor.push(s);
+      return false;
+    }
+    return true;
+  });
+  const insertAt = withoutVendor.findIndex(isThemeCascadeStylesheet);
+  if (insertAt < 0) return [...withoutVendor, ...vendor];
+  return [...withoutVendor.slice(0, insertAt), ...vendor, ...withoutVendor.slice(insertAt)];
+}
+
+/**
+ * Classic / Gutenberg canvas styles: prefer WP enqueue order from the export
+ * manifest, then fill gaps from disk (per-block CSS, theme inline dumps).
+ */
+export function mergeClassicCanvasStyles(
+  manifestStyles: string[],
+  diskStyles: string[],
+  profileStyles: string[] = [],
+): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const push = (href: string) => {
+    if (!href || seen.has(href)) return;
+    seen.add(href);
+    out.push(href);
+  };
+
+  const extras = [...diskStyles, ...profileStyles].filter((h) => !manifestStyles.includes(h));
+  const coreExtras = extras.filter((h) => /\/wp-includes\//i.test(h));
+  const lateExtras = extras.filter((h) => !/\/wp-includes\//i.test(h));
+
+  if (manifestStyles.length > 0) {
+    // Per-block WP CSS first (manifest usually has the aggregate block-library only).
+    for (const h of coreExtras) push(h);
+    for (const h of manifestStyles) push(h);
+    for (const h of lateExtras) push(h);
+  } else {
+    for (const h of diskStyles) push(h);
+    for (const h of profileStyles) push(h);
+  }
+
+  return ensureThemeBeatsVendorResets(out);
+}
+
 /** Prefix canvas styles for the detected builder (skip Elementor chrome on Gutenberg/Neve). */
 export function withBuilderCanvasStyles(
   styles: string[],
@@ -332,7 +407,8 @@ export function withBuilderCanvasStyles(
   const prefix = [THEME_FONTS_STYLE_HREF, THEME_DUOTONE_STYLE_HREF];
 
   // FSE/classic: theme fonts and duotone are always written under public/assets.
-  return [...prefix, ...tokens, ...without];
+  // Re-assert theme-over-Bootstrap after prefixing helpers.
+  return ensureThemeBeatsVendorResets([...prefix, ...tokens, ...without]);
 }
 
 /**

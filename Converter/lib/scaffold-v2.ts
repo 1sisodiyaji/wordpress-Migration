@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   ensureCriticalCanvasCss,
+  ensureThemeBeatsVendorResets,
   ensureWpIncludesDesignAssets,
   extractInlineElementorStyles,
   mirrorRemoteMediaUrls,
@@ -678,14 +679,18 @@ function blockModeCanvasStyles(fullStyles: string[], opts?: { fseSafe?: boolean 
       /\/(theme-fonts|theme-duotone|site-fonts|wp-fonts|design-tokens)/i.test(s);
     const fonts = rest.filter(fontish);
     const body = rest.filter((s) => !fontish(s));
-    return [
+    return ensureThemeBeatsVendorResets([
       ...fonts,
       GRAPE_BLOCKS_CSS,
       ...body,
       ...(hasCore ? [CORE_BLOCK_SUPPORTS] : []),
-    ];
+    ]);
   }
-  return [...rest, ...(hasCore ? [CORE_BLOCK_SUPPORTS] : []), GRAPE_BLOCKS_CSS];
+  return ensureThemeBeatsVendorResets([
+    ...rest,
+    ...(hasCore ? [CORE_BLOCK_SUPPORTS] : []),
+    GRAPE_BLOCKS_CSS,
+  ]);
 }
 
 /** Extract <style> from Elementor library templates (nested shortcodes / logo carousels). */
@@ -1203,6 +1208,7 @@ const DUOTONE_SVG_HREF = "${THEME_DUOTONE_SVG_HREF}";
 /**
  * Elementor: grape-blocks last.
  * FSE/Gutenberg: grape-blocks early so WP global-styles + core-block-supports win.
+ * Always keep Bootstrap/reboot before theme CSS (body color/font cascade).
  */
 function orderCanvasStyles(styles: string[]): string[] {
   const pageBuilder = String((siteData as { pageBuilder?: string }).pageBuilder ?? "");
@@ -1211,22 +1217,44 @@ function orderCanvasStyles(styles: string[]): string[] {
   const rest = cleaned.filter((s) => s !== CORE_BLOCK_SUPPORTS && s !== GRAPE_BLOCKS);
   const hasCore = cleaned.includes(CORE_BLOCK_SUPPORTS);
   const hasGrape = cleaned.includes(GRAPE_BLOCKS);
+  const isVendorReset = (s: string) =>
+    /\\/bootstrap(\\.min)?\\.css(\\?|$)/i.test(s) || /\\/reboot(\\.min)?\\.css(\\?|$)/i.test(s);
+  const isThemeCascade = (s: string) =>
+    /\\/wp-content\\/themes\\//i.test(s) ||
+    /\\/inline\\/styles\\/(.+-style|.*-google-fonts|page-.+-inline|layout-.+-inline|wp-custom)\\.css$/i.test(
+      s,
+    );
+  const ensureThemeBeatsVendor = (list: string[]): string[] => {
+    const bad = list.some((s, i) => isVendorReset(s) && list.slice(0, i).some(isThemeCascade));
+    if (!bad) return list;
+    const vendor: string[] = [];
+    const restList = list.filter((s) => {
+      if (isVendorReset(s)) {
+        vendor.push(s);
+        return false;
+      }
+      return true;
+    });
+    const at = restList.findIndex(isThemeCascade);
+    if (at < 0) return [...restList, ...vendor];
+    return [...restList.slice(0, at), ...vendor, ...restList.slice(at)];
+  };
   if (fseSafe) {
     const fontish = (s: string) => /\\/(theme-fonts|theme-duotone|wp-fonts|design-tokens)/i.test(s);
     const fonts = rest.filter(fontish);
     const body = rest.filter((s) => !fontish(s));
-    return [
+    return ensureThemeBeatsVendor([
       ...fonts,
       ...(hasGrape ? [GRAPE_BLOCKS] : []),
       ...body,
       ...(hasCore ? [CORE_BLOCK_SUPPORTS] : []),
-    ];
+    ]);
   }
-  return [
+  return ensureThemeBeatsVendor([
     ...rest,
     ...(hasCore ? [CORE_BLOCK_SUPPORTS] : []),
     ...(hasGrape ? [GRAPE_BLOCKS] : []),
-  ];
+  ]);
 }
 
 /** Inject WP duotone SVG filter defs (required for .wp-duotone-* site logos). */

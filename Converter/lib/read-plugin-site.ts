@@ -7,7 +7,7 @@ import type {
   PluginExportMenu,
 } from "../shared/wp/types";
 import { readAssetManifest, resolveCanvasScripts, resolveSiteStyles } from "./asset-manifest";
-import { collectCanvasStyles } from "./grape-prep";
+import { collectCanvasStyles, mergeClassicCanvasStyles } from "./grape-prep";
 import { convertElementorDocument, type ElementorNode, type GrapeBlock } from "./elementor-to-grape";
 import { stripPageChrome } from "./html-to-grape";
 
@@ -363,8 +363,15 @@ export function pageCanvasAssets(
     }
   }
 
+  // Classic/Gutenberg: manifest enqueue order first (Bootstrap before theme).
+  // Disk-first Set merge used to put theme CSS early and plugin Bootstrap late,
+  // so body color became #212529 and typography/boxes drifted from WordPress.
+  const styles = isElementor
+    ? [...new Set([...diskStyles, ...profileStyles, ...site.globalStyles])]
+    : mergeClassicCanvasStyles(site.globalStyles, diskStyles, profileStyles);
+
   return {
-    styles: [...new Set([...diskStyles, ...profileStyles, ...site.globalStyles])],
+    styles,
     scripts: [...new Set([...site.globalScripts, ...profileScripts])],
   };
 }
@@ -415,10 +422,38 @@ function collectBlockThemeCanvasStyles(assetsRoot: string): string[] {
     }
   }
 
-  if (!fs.existsSync(wpRoot)) {
-    // Still include inline dumps below.
-  } else {
-    // Themes (Neve style-main-new.min.css, Spexo assets/css, Astra assets/css/minified, etc.)
+  if (fs.existsSync(wpRoot)) {
+    // Plugin CSS before theme CSS so vendor resets (Bootstrap) lose to theme body rules.
+    const pluginsRoot = path.join(wpRoot, "plugins");
+    if (fs.existsSync(pluginsRoot)) {
+      for (const plugin of fs.readdirSync(pluginsRoot).sort()) {
+        if (/^elementor/i.test(plugin)) continue;
+        const pluginDir = path.join(pluginsRoot, plugin);
+        if (!fs.statSync(pluginDir).isDirectory()) continue;
+        for (const sub of [
+          "assets/css",
+          "css",
+          "build",
+          "build/atomic-wind",
+          "build/blocks",
+          "widgets/init/assets/css",
+        ]) {
+          pushGlob(`plugins/${plugin}/${sub}`);
+        }
+      }
+    }
+
+    pushGlob("plugins/otter-blocks/build/atomic-wind");
+    for (const rel of [
+      "plugins/otter-blocks/build/style.css",
+      "plugins/otter-blocks/build/blocks/style.css",
+    ]) {
+      if (fs.existsSync(path.join(wpRoot, rel))) {
+        styles.push(`/assets/wp-content/${rel}`);
+      }
+    }
+
+    // Themes after plugins (Neve style-main-new.min.css, Spexo, Astra, classic style.css).
     const themesRoot = path.join(wpRoot, "themes");
     if (fs.existsSync(themesRoot)) {
       for (const theme of fs.readdirSync(themesRoot)) {
@@ -429,9 +464,12 @@ function collectBlockThemeCanvasStyles(assetsRoot: string): string[] {
             styles.push(`/assets/wp-content/themes/${theme}/${name}`);
           }
         }
+        // Theme resource CSS (slick, animate, fontawesome) — still after Bootstrap.
+        for (const sub of ["resource/css", "assets/css", "css"]) {
+          pushGlob(`themes/${theme}/${sub}`);
+        }
         const themeCssDir = path.join(themeDir, "assets", "css");
         if (fs.existsSync(themeCssDir)) {
-          // Flat files + common Astra/Neve subfolders (minified / unminified).
           const cssDirs = [
             themeCssDir,
             path.join(themeCssDir, "minified"),
@@ -449,16 +487,6 @@ function collectBlockThemeCanvasStyles(assetsRoot: string): string[] {
             }
           }
         }
-      }
-    }
-
-    pushGlob("plugins/otter-blocks/build/atomic-wind");
-    for (const rel of [
-      "plugins/otter-blocks/build/style.css",
-      "plugins/otter-blocks/build/blocks/style.css",
-    ]) {
-      if (fs.existsSync(path.join(wpRoot, rel))) {
-        styles.push(`/assets/wp-content/${rel}`);
       }
     }
   }
