@@ -69,9 +69,21 @@ function safePascalName(raw: string): string {
   return base.slice(0, 48);
 }
 
+function blockHasContent(block: GrapeBlock): boolean {
+  const html = blockInnerHtml(block);
+  const text = html
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return text.length >= 20 || /<(img|video|iframe|svg)\b/i.test(html);
+}
+
 export function buildSectionSpecs(grapeBlocks: GrapeBlock[]): PageSectionSpec[] {
   const usedNames = new Set<string>();
-  return grapeBlocks.map((block, index) => {
+  const kept = grapeBlocks.filter(blockHasContent);
+  return kept.map((block, index) => {
     const fileSlug = sectionFileSlug(block, index);
     const titleHint = sectionTitleHint(block);
     let componentName = `Section${String(index + 1).padStart(2, "0")}${safePascalName(

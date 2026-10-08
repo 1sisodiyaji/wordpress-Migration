@@ -143,11 +143,14 @@ class Page_Exporter {
 				|| false !== stripos( (string) $route['template'], 'custom-home' )
 				|| false !== stripos( (string) $route['template'], 'front-page' ));
 		$is_home_route = isset( $route['type'] ) && 'home' === $route['type'];
-		if ( $is_posts_page || $is_front_tpl || $is_home_route || Front_Html::needs_live_content( $rendered ) ) {
+		$is_elementor  = ( 'elementor' === $builder );
+		// Elementor / empty classic / front templates: prefer the live public HTML so
+		// QA sees the same section tree as WordPress (avoids WP 0 vs Vite N).
+		if ( $is_posts_page || $is_front_tpl || $is_home_route || $is_elementor || Front_Html::needs_live_content( $rendered ) ) {
 			$live = $this->capture_live_content( $post, $route, $is_posts_page );
-			if ( $live ) {
+			if ( $live && ( Front_Html::needs_live_content( $rendered ) || strlen( $live ) > strlen( $rendered ) ) ) {
 				$rendered = $live;
-			} elseif ( $is_front_tpl || $is_home_route ) {
+			} elseif ( ! $live && ( $is_front_tpl || $is_home_route ) ) {
 				$this->warnings[] = 'Homepage live crawl returned no content slot. For Abiz/Techboost, ensure the Daddy Plus (or theme companion) plugin is active so frontpage sections render.';
 			}
 		}

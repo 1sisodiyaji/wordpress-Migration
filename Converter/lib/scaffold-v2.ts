@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   ensureCriticalCanvasCss,
+  ensureThemeAfterPlugins,
   ensureThemeBeatsVendorResets,
   ensureWpIncludesDesignAssets,
   extractInlineElementorStyles,
@@ -679,18 +680,22 @@ function blockModeCanvasStyles(fullStyles: string[], opts?: { fseSafe?: boolean 
       /\/(theme-fonts|theme-duotone|site-fonts|wp-fonts|design-tokens)/i.test(s);
     const fonts = rest.filter(fontish);
     const body = rest.filter((s) => !fontish(s));
-    return ensureThemeBeatsVendorResets([
-      ...fonts,
-      GRAPE_BLOCKS_CSS,
-      ...body,
-      ...(hasCore ? [CORE_BLOCK_SUPPORTS] : []),
-    ]);
+    return ensureThemeAfterPlugins(
+      ensureThemeBeatsVendorResets([
+        ...fonts,
+        GRAPE_BLOCKS_CSS,
+        ...body,
+        ...(hasCore ? [CORE_BLOCK_SUPPORTS] : []),
+      ]),
+    );
   }
-  return ensureThemeBeatsVendorResets([
-    ...rest,
-    ...(hasCore ? [CORE_BLOCK_SUPPORTS] : []),
-    GRAPE_BLOCKS_CSS,
-  ]);
+  return ensureThemeAfterPlugins(
+    ensureThemeBeatsVendorResets([
+      ...rest,
+      ...(hasCore ? [CORE_BLOCK_SUPPORTS] : []),
+      GRAPE_BLOCKS_CSS,
+    ]),
+  );
 }
 
 /** Extract <style> from Elementor library templates (nested shortcodes / logo carousels). */
@@ -1218,39 +1223,61 @@ function orderCanvasStyles(styles: string[]): string[] {
   const hasCore = cleaned.includes(CORE_BLOCK_SUPPORTS);
   const hasGrape = cleaned.includes(GRAPE_BLOCKS);
   const isVendorReset = (s: string) =>
-    /\\/bootstrap(\\.min)?\\.css(\\?|$)/i.test(s) || /\\/reboot(\\.min)?\\.css(\\?|$)/i.test(s);
+    /\\/bootstrap(\\.min)?\\.css(\\?|$)/i.test(s) ||
+    /\\/reboot(\\.min)?\\.css(\\?|$)/i.test(s) ||
+    /\\/plugins\\/[^/]+\\/.*\\/bootstrap/i.test(s);
   const isThemeCascade = (s: string) =>
     /\\/wp-content\\/themes\\//i.test(s) ||
-    /\\/inline\\/styles\\/(.+-style|.*-google-fonts|page-.+-inline|layout-.+-inline|wp-custom)\\.css$/i.test(
-      s,
-    );
-  const ensureThemeBeatsVendor = (list: string[]): string[] => {
-    const bad = list.some((s, i) => isVendorReset(s) && list.slice(0, i).some(isThemeCascade));
-    if (!bad) return list;
-    const vendor: string[] = [];
-    const restList = list.filter((s) => {
-      if (isVendorReset(s)) {
-        vendor.push(s);
-        return false;
+    /\\/inline\\/styles\\/(.+-style|.*-google-fonts|wp-custom)\\.css$/i.test(s);
+  const isPageInline = (s: string) =>
+    /\\/inline\\/styles\\/(page-.+-inline|layout-.+-inline)\\.css$/i.test(s);
+  const ensureCascade = (list: string[]): string[] => {
+    let next = list;
+    const bad = next.some((s, i) => isVendorReset(s) && next.slice(0, i).some(isThemeCascade));
+    if (bad) {
+      const vendor: string[] = [];
+      const restList = next.filter((s) => {
+        if (isVendorReset(s)) {
+          vendor.push(s);
+          return false;
+        }
+        return true;
+      });
+      const at = restList.findIndex(isThemeCascade);
+      next =
+        at < 0
+          ? [...restList, ...vendor]
+          : [...restList.slice(0, at), ...vendor, ...restList.slice(at)];
+    }
+    const themeIdx = next.findIndex(isThemeCascade);
+    const pluginAfter =
+      themeIdx >= 0 &&
+      next.slice(themeIdx + 1).some((s) => /\\/wp-content\\/plugins\\//i.test(s) && !isPageInline(s));
+    if (pluginAfter) {
+      const pageInline = next.filter(isPageInline);
+      const theme = next.filter(isThemeCascade);
+      const body = next.filter((s) => !isThemeCascade(s) && !isPageInline(s));
+      next = [...body, ...theme, ...pageInline];
+    } else {
+      const pageInline = next.filter(isPageInline);
+      if (pageInline.length) {
+        next = [...next.filter((s) => !isPageInline(s)), ...pageInline];
       }
-      return true;
-    });
-    const at = restList.findIndex(isThemeCascade);
-    if (at < 0) return [...restList, ...vendor];
-    return [...restList.slice(0, at), ...vendor, ...restList.slice(at)];
+    }
+    return next;
   };
   if (fseSafe) {
     const fontish = (s: string) => /\\/(theme-fonts|theme-duotone|wp-fonts|design-tokens)/i.test(s);
     const fonts = rest.filter(fontish);
     const body = rest.filter((s) => !fontish(s));
-    return ensureThemeBeatsVendor([
+    return ensureCascade([
       ...fonts,
       ...(hasGrape ? [GRAPE_BLOCKS] : []),
       ...body,
       ...(hasCore ? [CORE_BLOCK_SUPPORTS] : []),
     ]);
   }
-  return ensureThemeBeatsVendor([
+  return ensureCascade([
     ...rest,
     ...(hasCore ? [CORE_BLOCK_SUPPORTS] : []),
     ...(hasGrape ? [GRAPE_BLOCKS] : []),
@@ -1674,6 +1701,10 @@ function writeRootFiles(projectDir: string, site: PluginSite, port: number): voi
           "@vitejs/plugin-react": "^4.7.0",
           typescript: "^5.9.0",
           vite: "^6.4.0",
+        },
+        // pnpm 10+ blocks esbuild postinstall unless listed — QA Vite needs this.
+        pnpm: {
+          onlyBuiltDependencies: ["esbuild"],
         },
       },
       null,

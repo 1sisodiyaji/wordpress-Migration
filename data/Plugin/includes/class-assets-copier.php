@@ -265,13 +265,18 @@ class Assets_Copier {
 				}
 			}
 
-			// Remote stylesheets (Google Fonts and other CDNs) are enqueued
-			// with an https URL and never map to a file under wp-content.
-			if ( 'styles' === $kind && empty( $entry['bundlePath'] ) && preg_match( '#^https?://#i', $src ) ) {
-				$saved = $this->save_remote_stylesheet( $handle, $src );
-				if ( $saved ) {
-					$entry['bundlePath'] = $saved;
-					$this->copied_files++;
+			// Remote stylesheets (Google Fonts and other CDNs). Themes often
+			// enqueue protocol-relative URLs (`//fonts.googleapis.com/...`)
+			// which never map to disk — normalize and download into the bundle.
+			if ( 'styles' === $kind && empty( $entry['bundlePath'] ) ) {
+				$remote = $this->normalize_remote_url( $src );
+				if ( $remote ) {
+					$saved = $this->save_remote_stylesheet( $handle, $remote );
+					if ( $saved ) {
+						$entry['src']        = $remote;
+						$entry['bundlePath'] = $saved;
+						$this->copied_files++;
+					}
 				}
 			} elseif ( 'scripts' === $kind ) {
 				// Frontend jQuery (and migrate) — needed for Elementor / some FSE widgets.
@@ -621,10 +626,40 @@ class Assets_Copier {
 	}
 
 	/**
+	 * Turn protocol-relative / scheme-relative URLs into https absolute URLs.
+	 *
+	 * @param string $url Asset URL from the enqueue / front HTML.
+	 * @return string|null Absolute http(s) URL, or null when not remote.
+	 */
+	private function normalize_remote_url( $url ) {
+		$url = trim( (string) $url );
+		if ( '' === $url ) {
+			return null;
+		}
+		// Protocol-relative: //fonts.googleapis.com/...
+		if ( 0 === strpos( $url, '//' ) ) {
+			$url = 'https:' . $url;
+		}
+		if ( ! preg_match( '#^https?://#i', $url ) ) {
+			return null;
+		}
+		// Skip local site assets (already handled via wp-content / wp-includes copy).
+		$host = (string) wp_parse_url( $url, PHP_URL_HOST );
+		$site = (string) wp_parse_url( home_url( '/' ), PHP_URL_HOST );
+		if ( $host && $site && strtolower( $host ) === strtolower( $site ) ) {
+			return null;
+		}
+		if ( in_array( strtolower( $host ), array( 'localhost', '127.0.0.1' ), true ) ) {
+			return null;
+		}
+		return $url;
+	}
+
+	/**
 	 * Download a remote stylesheet into the bundle.
 	 *
-	 * Themes enqueue Google Fonts (and similar) as https URLs. Those never
-	 * map to a file on disk, so the export previously left bundlePath empty.
+	 * Themes enqueue Google Fonts (and similar) as https or `//` URLs. Those
+	 * never map to a file on disk, so we fetch CSS + font files into the ZIP.
 	 *
 	 * @param string $handle Style handle.
 	 * @param string $url    Absolute stylesheet URL.
@@ -635,11 +670,20 @@ class Assets_Copier {
 			return null;
 		}
 
+		$url = $this->normalize_remote_url( $url );
+		if ( ! $url ) {
+			return null;
+		}
+
 		$response = wp_remote_get(
 			$url,
 			array(
-				'timeout'    => 20,
+				'timeout'    => 30,
+				'redirection' => 3,
 				'user-agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+				'headers'    => array(
+					'Accept' => 'text/css,*/*;q=0.1',
+				),
 			)
 		);
 		if ( is_wp_error( $response ) ) {
@@ -649,13 +693,17 @@ class Assets_Copier {
 		$code = (int) wp_remote_retrieve_response_code( $response );
 		$body = (string) wp_remote_retrieve_body( $response );
 		if ( $code < 200 || $code >= 300 || '' === trim( $body ) ) {
-			$this->warnings[] = sprintf( 'Remote stylesheet HTTP %d: %s', $code, $handle );
+			$this->warnings[] = sprintf( 'Remote stylesheet HTTP %d: %s (%s)', $code, $handle, $url );
 			return null;
 		}
 
 		$body = $this->vendor_remote_font_files( $handle, $body );
 
-		$file = 'assets/inline/styles/' . sanitize_file_name( $handle ) . '.css';
+		$safe = sanitize_file_name( $handle );
+		if ( '' === $safe ) {
+			$safe = 'remote-' . substr( md5( $url ), 0, 10 );
+		}
+		$file = 'assets/inline/styles/' . $safe . '.css';
 		$this->writer->write( $file, $body );
 		return $file;
 	}
@@ -669,13 +717,21 @@ class Assets_Copier {
 	 * @return string
 	 */
 	private function vendor_remote_font_files( $handle, $css ) {
-		if ( ! preg_match_all( '#https?://[^)\'"\s]+#i', $css, $matches ) ) {
+		// Match https://… and protocol-relative //fonts.gstatic.com/…
+		if ( ! preg_match_all( '#(?:https?:)?//[^)\'"\s]+#i', $css, $matches ) ) {
 			return $css;
 		}
 
 		$slug    = sanitize_file_name( $handle );
+		if ( '' === $slug ) {
+			$slug = 'remote-fonts';
+		}
 		$rewrote = array();
-		foreach ( array_unique( $matches[0] ) as $font_url ) {
+		foreach ( array_unique( $matches[0] ) as $raw_url ) {
+			$font_url = $this->normalize_remote_url( $raw_url );
+			if ( ! $font_url ) {
+				continue;
+			}
 			$path = (string) wp_parse_url( $font_url, PHP_URL_PATH );
 			$base = $path ? basename( $path ) : '';
 			if ( ! preg_match( '#\.(woff2?|ttf|otf|eot)$#i', $base ) ) {
@@ -690,7 +746,9 @@ class Assets_Copier {
 			$dest = 'assets/inline/fonts/' . $slug . '/' . $name;
 			$this->writer->write( $dest, $bytes );
 			$this->copied_files++;
-			$rewrote[ $font_url ] = '/assets/inline/fonts/' . $slug . '/' . $name;
+			$local = '/assets/inline/fonts/' . $slug . '/' . $name;
+			$rewrote[ $raw_url ]  = $local;
+			$rewrote[ $font_url ] = $local;
 		}
 
 		foreach ( $rewrote as $remote => $local ) {

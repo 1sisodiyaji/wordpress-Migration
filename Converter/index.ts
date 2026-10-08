@@ -7,8 +7,11 @@
  */
 import "dotenv/config";
 import { spawn } from "node:child_process";
+import { installColorConsole, logger } from "../shared/console-log";
 import { installProjectDeps } from "./shared/install-project-deps";
 import { generateReactGrapeProject } from "./lib/scaffold";
+
+installColorConsole();
 
 const argv = process.argv.slice(2);
 const site = getArg(argv, "--site") ?? getArg(argv, "-s");
@@ -16,28 +19,23 @@ const port = Number(getArg(argv, "--port") ?? "8000");
 const shouldRun = argv.includes("--run");
 
 if (!site) {
-  console.error(`
-Usage:
-  pnpm generate -- --site <slug> [--port 3001] [--run]
-
-Import a wp-grape-export ZIP in Studio first, or pull from a local WordPress site.
-`);
+  logger.error(`Usage: pnpm generate -- --site <slug> [--port 3001] [--run]`);
   process.exit(1);
 }
 
 const projectDir = await generateReactGrapeProject({ siteSlug: site, port });
 
-console.log(`\n✅ Generated React + GrapeJS project → Projects/${site}/\n`);
+logger.info(`✅ Generated React + GrapeJS project → Projects/${site}/`);
 
 if (shouldRun) {
-  console.log(`📦 Installing dependencies in Projects/${site}/...`);
+  logger.info(`📦 Installing dependencies in Projects/${site}/...`);
   await installProjectDeps(projectDir);
-  console.log(`\n🚀 Starting dev server on port ${port}...`);
-  console.log(`   http://localhost:${port}\n`);
+  logger.info(`🚀 Starting dev server on port ${port}...`);
+  logger.info(`http://localhost:${port}`);
   const child = spawn("npm", ["run", "dev"], { cwd: projectDir, stdio: "inherit", shell: true });
   child.on("exit", (code) => process.exit(code ?? 0));
 } else {
-  console.log(`Next: cd Projects/${site} && npm install && npm run dev\n`);
+  logger.info(`Next: cd Projects/${site} && npm install && npm run dev`);
 }
 
 function getArg(args: string[], name: string): string | undefined {

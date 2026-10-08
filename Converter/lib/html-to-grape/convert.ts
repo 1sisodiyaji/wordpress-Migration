@@ -178,15 +178,27 @@ function convertGutenbergBlock(block: GutenbergBlock): GrapeBlock | GrapeBlock[]
   };
 }
 
+function meaningfulHtml(html: string): boolean {
+  const text = html
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (text.length >= 20) return true;
+  return /<(img|video|iframe|svg)\b/i.test(html);
+}
+
 /**
  * Convert rendered page HTML into top-level Grape section components.
  * Used when Gutenberg raw.json is empty/missing (typical FSE homepage).
  */
 export function htmlToGrapeSections(html: string): GrapeBlock[] {
-  const chunks = extractSectionHtmlChunks(html);
+  const chunks = extractSectionHtmlChunks(html).filter(meaningfulHtml);
   if (chunks.length === 0) {
     const stripped = stripPageChrome(html);
-    if (!stripped) return [];
+    if (!stripped || !meaningfulHtml(stripped)) return [];
     return [
       {
         tagName: "section",

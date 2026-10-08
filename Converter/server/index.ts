@@ -4,12 +4,15 @@
  */
 import "dotenv/config";
 import express from "express";
+import { installColorConsole, logger } from "../../shared/console-log";
 import { generateReactGrapeProject, getProjectDir } from "../lib/scaffold";
 import { importPluginExport } from "../shared/wp-import/import-plugin-export";
 import { importLocalSource } from "../shared/wp-import/import-local";
 import { syncLocalPluginExport } from "../shared/wp-import/sync-local-export";
 import { installProjectDeps } from "../shared/install-project-deps";
 import { getProjectsRoot, getTmpDir } from "../shared/paths";
+
+installColorConsole();
 
 const PORT = Number(process.env.CONVERTER_PORT ?? "5174");
 const app = express();
@@ -33,12 +36,12 @@ app.post("/api/generate", async (req, res) => {
       return;
     }
     const port = Number(req.body?.port) || undefined;
-    console.log(`[converter] generate slug=${slug} port=${port ?? "default"}`);
+    logger.info(`[converter] generate slug=${slug} port=${port ?? "default"}`);
     const projectDir = await generateReactGrapeProject({ siteSlug: slug, port });
     await installProjectDeps(projectDir);
     res.json({ ok: true, projectDir, slug });
   } catch (err) {
-    console.error("[converter] generate failed", err);
+    logger.error("[converter] generate failed", err);
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
@@ -96,7 +99,7 @@ app.post("/api/sync-local", async (req, res) => {
 });
 
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Converter listening on http://0.0.0.0:${PORT}`);
-  console.log(`  PROJECTS_ROOT=${getProjectsRoot()}`);
-  console.log(`  TMP_DIR=${getTmpDir()}`);
+  logger.info(`Converter listening on http://0.0.0.0:${PORT}`);
+  logger.info(`PROJECTS_ROOT=${getProjectsRoot()}`);
+  logger.info(`TMP_DIR=${getTmpDir()}`);
 });

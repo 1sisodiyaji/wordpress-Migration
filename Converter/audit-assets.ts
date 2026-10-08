@@ -14,11 +14,14 @@
 import "dotenv/config";
 import fs from "node:fs";
 import path from "node:path";
+import { installColorConsole, logger } from "../shared/console-log";
 import {
   formatAssetFidelitySummary,
   runAssetFidelityAudit,
 } from "./lib/asset-fidelity-audit";
 import { getProjectsRoot } from "./shared/paths";
+
+installColorConsole();
 
 const argv = process.argv.slice(2);
 const site = getArg(argv, "--site") ?? getArg(argv, "-s");
@@ -27,19 +30,9 @@ const fail = argv.includes("--fail");
 const phase = (getArg(argv, "--phase") as "post-import" | "post-convert" | undefined) ?? "post-convert";
 
 if (!site && !all) {
-  console.error(`
-Usage:
-  pnpm audit:assets -- --site <slug> [--fail] [--phase post-convert|post-import]
-  pnpm audit:assets -- --all [--fail]
-
-Env guardrails (strict by default — any missing design CSS fails):
-  ASSET_AUDIT_MAX_MISSING_STYLES=0
-  ASSET_AUDIT_MAX_MISSING_SCRIPTS=0
-  ASSET_AUDIT_MAX_MISSING_CANVAS_STYLES=0
-  ASSET_AUDIT_MAX_MISSING_CANVAS_SCRIPTS=0
-  ASSET_AUDIT_MAX_MISSING_STYLE_RATIO=0
-  ASSET_AUDIT_FAIL=0          # set to disable hard-fail on convert
-`);
+  logger.error(
+    "Usage: pnpm audit:assets -- --site <slug> [--fail] | --all [--fail]",
+  );
   process.exit(1);
 }
 
@@ -53,12 +46,12 @@ for (const slug of slugs) {
       phase,
       failOnGuardrail: fail,
     });
-    console.log(formatAssetFidelitySummary(report));
-    console.log(`  report → output/${slug}/data/audit/asset-fidelity.json\n`);
+    logger.info(formatAssetFidelitySummary(report));
+    logger.info(`report → output/${slug}/data/audit/asset-fidelity.json`);
     if (!report.guardrail.passed) failed += 1;
   } catch (err) {
     failed += 1;
-    console.error(`✖ ${slug}: ${err instanceof Error ? err.message : String(err)}\n`);
+    logger.error(`✖ ${slug}: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 

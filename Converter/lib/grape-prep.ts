@@ -288,19 +288,27 @@ export function withElementorPreviewStyle(styles: string[]): string[] {
 /** WP 6.8+ design system tokens (handle: wp-theme). */
 export const WP_DESIGN_TOKENS_HREF = "/assets/wp-includes/css/dist/theme/design-tokens.min.css";
 
-/** Bootstrap / reboot global resets that override theme `body { color; font }` when loaded later. */
+/** Bootstrap / reboot / foundation global resets that override theme body color/font. */
 export function isVendorResetStylesheet(href: string): boolean {
-  return /\/bootstrap(\.min)?\.css(\?|$)/i.test(href) || /\/reboot(\.min)?\.css(\?|$)/i.test(href);
+  return (
+    /\/bootstrap(\.min)?\.css(\?|$)/i.test(href) ||
+    /\/reboot(\.min)?\.css(\?|$)/i.test(href) ||
+    /\/foundation(\.min)?\.css(\?|$)/i.test(href) ||
+    /\/normalize(\.min)?\.css(\?|$)/i.test(href) ||
+    /\/plugins\/[^/]+\/.*\/bootstrap/i.test(href)
+  );
 }
 
 /** Theme sheets that must beat vendor body resets (Bootstrap `#212529`). */
 export function isThemeCascadeStylesheet(href: string): boolean {
   if (/\/wp-content\/themes\//i.test(href)) return true;
-  // Theme-named inline dumps + page/layout overrides — not global-styles
-  // (WP often prints global-styles *before* plugin Bootstrap).
-  return /\/inline\/styles\/(.+-style|.*-google-fonts|page-.+-inline|layout-.+-inline|wp-custom)\.css$/i.test(
-    href,
-  );
+  // Theme-named inline dumps — not global-styles (often before plugin Bootstrap on WP).
+  return /\/inline\/styles\/(.+-style|.*-google-fonts|wp-custom)\.css$/i.test(href);
+}
+
+/** Page/layout inline CSS should load last (after theme) for true cascade parity. */
+export function isPageInlineStylesheet(href: string): boolean {
+  return /\/inline\/styles\/(page-.+-inline|layout-.+-inline)\.css$/i.test(href);
 }
 
 /**
@@ -314,7 +322,7 @@ export function ensureThemeBeatsVendorResets(styles: string[]): string[] {
   const vendorAfterTheme = styles.some(
     (s, i) => isVendorResetStylesheet(s) && styles.slice(0, i).some(isThemeCascadeStylesheet),
   );
-  if (!vendorAfterTheme) return styles;
+  if (!vendorAfterTheme) return ensurePageInlineLast(styles);
 
   const vendor: string[] = [];
   const withoutVendor = styles.filter((s) => {
@@ -325,8 +333,41 @@ export function ensureThemeBeatsVendorResets(styles: string[]): string[] {
     return true;
   });
   const insertAt = withoutVendor.findIndex(isThemeCascadeStylesheet);
-  if (insertAt < 0) return [...withoutVendor, ...vendor];
-  return [...withoutVendor.slice(0, insertAt), ...vendor, ...withoutVendor.slice(insertAt)];
+  const merged =
+    insertAt < 0
+      ? [...withoutVendor, ...vendor]
+      : [...withoutVendor.slice(0, insertAt), ...vendor, ...withoutVendor.slice(insertAt)];
+  return ensurePageInlineLast(merged);
+}
+
+/**
+ * Disk scans sometimes append plugin CSS after theme sheets. Pull theme CSS
+ * after plugin vendor CSS (but keep page/layout inline at the very end).
+ */
+export function ensureThemeAfterPlugins(styles: string[]): string[] {
+  const pageInline: string[] = [];
+  const theme: string[] = [];
+  const rest: string[] = [];
+  for (const href of styles) {
+    if (isPageInlineStylesheet(href)) pageInline.push(href);
+    else if (isThemeCascadeStylesheet(href)) theme.push(href);
+    else rest.push(href);
+  }
+  // Only rewrite when a plugin sheet currently sits after a theme sheet.
+  const themeIdx = styles.findIndex(isThemeCascadeStylesheet);
+  const pluginAfter =
+    themeIdx >= 0 &&
+    styles.slice(themeIdx + 1).some((s) => /\/wp-content\/plugins\//i.test(s) && !isPageInlineStylesheet(s));
+  if (!pluginAfter && pageInline.length === 0) return styles;
+  if (!pluginAfter) return ensurePageInlineLast(styles);
+  return [...rest, ...theme, ...pageInline];
+}
+
+export function ensurePageInlineLast(styles: string[]): string[] {
+  const pageInline = styles.filter(isPageInlineStylesheet);
+  if (!pageInline.length) return styles;
+  const rest = styles.filter((s) => !isPageInlineStylesheet(s));
+  return [...rest, ...pageInline];
 }
 
 /**
@@ -360,7 +401,7 @@ export function mergeClassicCanvasStyles(
     for (const h of profileStyles) push(h);
   }
 
-  return ensureThemeBeatsVendorResets(out);
+  return ensureThemeAfterPlugins(ensureThemeBeatsVendorResets(out));
 }
 
 /** Prefix canvas styles for the detected builder (skip Elementor chrome on Gutenberg/Neve). */
@@ -370,7 +411,9 @@ export function withBuilderCanvasStyles(
   assetsRoot?: string,
 ): string[] {
   if ((pageBuilder ?? "unknown") === "elementor") {
-    return withElementorPreviewStyle(styles);
+    return ensureThemeAfterPlugins(
+      ensureThemeBeatsVendorResets(withElementorPreviewStyle(styles)),
+    );
   }
   const remote = new Set(CANVAS_REMOTE_STYLES);
   const without = styles.filter(
@@ -407,8 +450,8 @@ export function withBuilderCanvasStyles(
   const prefix = [THEME_FONTS_STYLE_HREF, THEME_DUOTONE_STYLE_HREF];
 
   // FSE/classic: theme fonts and duotone are always written under public/assets.
-  // Re-assert theme-over-Bootstrap after prefixing helpers.
-  return ensureThemeBeatsVendorResets([...prefix, ...tokens, ...without]);
+  // Re-assert theme-over-Bootstrap and page-inline-last after prefixing helpers.
+  return ensureThemeAfterPlugins(ensureThemeBeatsVendorResets([...prefix, ...tokens, ...without]));
 }
 
 /**

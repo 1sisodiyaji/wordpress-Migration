@@ -62,6 +62,8 @@ class Front_Html {
 					$url,
 					'http://localhost:5001' . $path,
 					'http://127.0.0.1:5001' . $path,
+					'http://localhost:4000' . $path,
+					'http://127.0.0.1:4000' . $path,
 				)
 			)
 		);
@@ -192,6 +194,12 @@ class Front_Html {
 	public static function extract_content( $html ) {
 		$html = (string) $html;
 
+		// Elementor full-page canvas (must beat empty classic .entry-content stubs).
+		$elementor = self::extract_elementor_content( $html );
+		if ( '' !== $elementor ) {
+			return $elementor;
+		}
+
 		// Block themes (FSE): designed homepage lives in wp-site-blocks.
 		if ( preg_match( '/<div\b[^>]*class="[^"]*\bwp-site-blocks\b[^"]*"[^>]*>/i', $html, $m, PREG_OFFSET_CAPTURE ) ) {
 			$chunk = self::extract_balanced_div( $html, (int) $m[0][1] );
@@ -253,6 +261,41 @@ class Front_Html {
 	}
 
 	/**
+	 * Elementor page body — prefer the data-elementor-type=wp-page / single canvas.
+	 *
+	 * @param string $html Full page HTML.
+	 * @return string
+	 */
+	private static function extract_elementor_content( $html ) {
+		$html = (string) $html;
+		if ( false === stripos( $html, 'elementor' ) ) {
+			return '';
+		}
+
+		$open_patterns = array(
+			'/<div\b[^>]*data-elementor-type=["\'](?:wp-page|page|wp-post)["\'][^>]*>/i',
+			'/<div\b[^>]*class="[^"]*\belementor\b[^"]*\belementor-\d+\b[^"]*"[^>]*>/i',
+			'/<div\b[^>]*class="[^"]*\belementor\b[^"]*"[^>]*data-elementor-id=/i',
+		);
+
+		foreach ( $open_patterns as $pattern ) {
+			if ( ! preg_match( $pattern, $html, $m, PREG_OFFSET_CAPTURE ) ) {
+				continue;
+			}
+			$chunk = self::extract_balanced_div( $html, (int) $m[0][1] );
+			if ( ! $chunk ) {
+				continue;
+			}
+			$text = trim( wp_strip_all_tags( $chunk ) );
+			if ( strlen( $text ) > 40 || preg_match( '/elementor-section|elementor-element|e-con/i', $chunk ) ) {
+				return trim( $chunk );
+			}
+		}
+
+		return '';
+	}
+
+	/**
 	 * Classic / hybrid theme content slot (Abiz, Astra-like shells, Bootstrap themes).
 	 *
 	 * @param string $html Full page HTML.
@@ -268,6 +311,9 @@ class Front_Html {
 			'/<div\b[^>]*\bid=["\']primary["\'][^>]*>/i',
 			'/<div\b[^>]*class="[^"]*\bcontent-area\b[^"]*"[^>]*>/i',
 			'/<div\b[^>]*class="[^"]*\bsite-main\b[^"]*"[^>]*>/i',
+			'/<div\b[^>]*\bid=["\']page["\'][^>]*>/i',
+			'/<div\b[^>]*class="[^"]*\bast-container\b[^"]*"[^>]*>/i',
+			'/<div\b[^>]*class="[^"]*\btheme-content\b[^"]*"[^>]*>/i',
 		);
 
 		foreach ( $open_patterns as $pattern ) {
@@ -329,6 +375,11 @@ class Front_Html {
 			return true;
 		}
 		if ( strlen( $html ) < 40 && false !== strpos( $html, '[' ) ) {
+			return true;
+		}
+		// Markup with almost no structure (single empty wrapper) — prefer live crawl.
+		$structure = preg_match_all( '/<(section|article|div|img|h[1-6]|p)\b/i', $html );
+		if ( $structure < 2 && strlen( $stripped ) < 200 ) {
 			return true;
 		}
 		return false;

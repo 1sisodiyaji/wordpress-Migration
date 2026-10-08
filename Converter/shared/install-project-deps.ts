@@ -20,15 +20,33 @@ function grapesCssPath(projectDir: string): string {
  * Install generated project deps. Prefer npm — under this repo root, `pnpm install`
  * in `Projects/<slug>` often completes without linking grapesjs (Vite then fails).
  */
+function allowNativeBuilds(projectDir: string): void {
+  try {
+    const pkgPath = path.join(projectDir, "package.json");
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8")) as {
+      pnpm?: { onlyBuiltDependencies?: string[] };
+    };
+    const only = new Set(pkg.pnpm?.onlyBuiltDependencies ?? []);
+    only.add("esbuild");
+    pkg.pnpm = { ...(pkg.pnpm ?? {}), onlyBuiltDependencies: [...only] };
+    fs.writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`, "utf8");
+  } catch {
+    /* ignore */
+  }
+  fs.writeFileSync(path.join(projectDir, ".npmrc"), "ignore-scripts=false\n", "utf8");
+}
+
 export async function installProjectDeps(projectDir: string): Promise<void> {
   if (!fs.existsSync(path.join(projectDir, "package.json"))) {
     throw new Error(`No package.json in ${projectDir}`);
   }
 
+  allowNativeBuilds(projectDir);
+
   try {
     await run("npm", ["install"], projectDir);
   } catch {
-    await run("pnpm", ["install"], projectDir);
+    await run("pnpm", ["install", "--config.ignore-scripts=false"], projectDir);
   }
 
   if (!fs.existsSync(grapesCssPath(projectDir))) {

@@ -18,6 +18,8 @@
     "docker:push": "docker push golusingh07/pen-wordpress-migrator-admin:latest && docker push golusingh07/pen-wordpress-migrator-converter:latest",
     "migrate:templates": "pnpm --dir data/automation/template-migrate start",
     "migrate:templates:one": "pnpm --dir data/automation/template-migrate start -- --limit 1",
+    "migrate:templates:one:fresh": "pnpm --dir data/automation/template-migrate start -- --limit 1 --fresh",
+    "migrate:templates:fresh": "pnpm --dir data/automation/template-migrate start -- --fresh",
     "zip:plugin": "node data/zip-plugin.mjs"
   },
   "dependencies": {

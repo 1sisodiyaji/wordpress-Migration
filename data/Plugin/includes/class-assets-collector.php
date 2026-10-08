@@ -350,8 +350,10 @@ class Assets_Collector {
 				}
 				if ( preg_match( '/\bhref=[\'"]([^\'"]+)[\'"]/i', $tag, $m ) ) {
 					$href = html_entity_decode( $m[1], ENT_QUOTES );
+					// Always prefer https for protocol-relative CDNs (Google Fonts).
+					// Using http: behind a reverse proxy / Docker often breaks downloads.
 					if ( 0 === strpos( $href, '//' ) ) {
-						$href = ( is_ssl() ? 'https:' : 'http:' ) . $href;
+						$href = 'https:' . $href;
 					}
 				}
 				if ( ! $href ) {

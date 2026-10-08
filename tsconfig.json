@@ -19,11 +19,13 @@
     "types": ["node"]
   },
   "include": [
+    "shared/**/*.ts",
     "Converter/**/*.ts",
     "Converter/**/*.tsx",
     "Admin/**/*.ts",
     "Admin/**/*.tsx",
-    "Admin/**/*.jsx"
+    "Admin/**/*.jsx",
+    "data/automation/template-migrate/**/*.ts"
   ],
   "exclude": ["node_modules", "output/**", "tmp/**", "Admin/dist/**"]
 }

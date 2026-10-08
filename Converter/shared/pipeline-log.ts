@@ -2,6 +2,11 @@
  * Structured console logging for the Admin/Converter migration pipeline.
  * Also mirrors lines into Projects/{slug}/migration.log when a slug is set.
  */
+import {
+  colorPipelineLine,
+  formatBannerLine,
+  stripAnsi,
+} from "../../shared/console-log";
 import { appendMigrationLog, initMigrationLog } from "./wp/migration-log";
 
 type Step =
@@ -37,10 +42,10 @@ function line(icon: string, message: string): string {
 }
 
 function emit(slug: string | undefined, text: string): void {
-  console.log(text);
+  console.log(colorPipelineLine(text));
   if (slug) {
     try {
-      appendMigrationLog(slug, text);
+      appendMigrationLog(slug, stripAnsi(text));
     } catch {
       /* ignore log write failures */
     }
@@ -48,10 +53,17 @@ function emit(slug: string | undefined, text: string): void {
 }
 
 export function pipelineBanner(title: string, slug?: string): void {
-  const bar = "─".repeat(56);
-  emit(slug, `\n${bar}`);
-  emit(slug, line(ICONS.admin, title));
-  emit(slug, bar);
+  const colored = formatBannerLine(title);
+  console.log(colored);
+  if (slug) {
+    try {
+      for (const part of stripAnsi(colored).split("\n")) {
+        if (part) appendMigrationLog(slug, part);
+      }
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 export function pipelineStep(step: Step, message: string, slug?: string): void {

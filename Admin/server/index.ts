@@ -3,8 +3,11 @@ import express from "express";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { installColorConsole, logger } from "../../shared/console-log";
 import { registerApi } from "./api";
 import { registerAuthRoutes } from "./auth";
+
+installColorConsole();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STUDIO_ROOT = path.resolve(__dirname, "..");
@@ -28,7 +31,7 @@ async function main() {
       return;
     }
     const message = err instanceof Error ? err.message : String(err);
-    console.error("[api]", req.method, req.path, err);
+    logger.error(`[api] ${req.method} ${req.path}`, err);
     res.status(500).json({ error: message || "Internal server error" });
   });
 
@@ -85,17 +88,15 @@ async function main() {
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`\n────────────────────────────────────────────────────────`);
-    console.log(`[${new Date().toISOString().replace("T", " ").slice(0, 19)}] 🎨  Admin running at http://0.0.0.0:${PORT} (${isProd ? "prod" : "dev"})`);
-    console.log(`   Converter: ${process.env.CONVERTER_URL ?? "http://localhost:5174"}`);
-    console.log(
-      `   Project editors: ports ${8000}–${8080} (bind 0.0.0.0; public origin ${process.env.EDITOR_PUBLIC_ORIGIN ?? "http://localhost"})`,
+    logger.info(`🎨 Admin running at http://0.0.0.0:${PORT} (${isProd ? "prod" : "dev"})`);
+    logger.info(`Converter: ${process.env.CONVERTER_URL ?? "http://localhost:5174"}`);
+    logger.info(
+      `Project editors: ports ${8000}–${8080} (bind 0.0.0.0; public origin ${process.env.EDITOR_PUBLIC_ORIGIN ?? "http://localhost"})`,
     );
-    console.log(`────────────────────────────────────────────────────────\n`);
   });
 }
 
 main().catch((err) => {
-  console.error(err);
+  logger.error(err instanceof Error ? err.message : String(err));
   process.exit(1);
 });
